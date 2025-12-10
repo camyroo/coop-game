@@ -4,11 +4,15 @@ using Unity.Netcode;
 [RequireComponent(typeof(PlayerInput))]
 public class PlayerGrabSystem : NetworkBehaviour
 {
+    [Header("Configuration")]
+    [SerializeField] private GameConfig config;
+
     [Header("Settings")]
-    [SerializeField] private float grabDistance = 2f;
     [SerializeField] private LayerMask grabbableLayer;
     [SerializeField] private Vector3 holdOffset = new Vector3(0, 1, 1);
-    
+
+    private float grabDistance => config != null ? config.grabDistance : 2f;
+
     private IGrabbable heldObject;
     private Transform holdPoint;
     private ulong heldObjectNetId;
@@ -144,8 +148,8 @@ public class PlayerGrabSystem : NetworkBehaviour
     void UpdatePreview()
     {
         PlaceableObject placeableObj = heldObject as PlaceableObject;
-        if (placeableObj == null) return;
-        
+        if (placeableObj == null || LevelGrid.Instance == null) return;
+
         Vector2Int gridPos = GetPlacementGridPosition();
         bool canPlace = LevelGrid.Instance.CanPlaceAt(gridPos);
         placeableObj.SetPlacementPreview(canPlace);
@@ -153,8 +157,10 @@ public class PlayerGrabSystem : NetworkBehaviour
     
     void TryPlace()
     {
+        if (LevelGrid.Instance == null) return;
+
         Vector2Int gridPos = GetPlacementGridPosition();
-        
+
         if (LevelGrid.Instance.CanPlaceAt(gridPos))
         {
             PlaceObjectServerRpc(heldObjectNetId, gridPos);
@@ -168,7 +174,9 @@ public class PlayerGrabSystem : NetworkBehaviour
     
     Vector2Int GetPlacementGridPosition()
     {
-        Vector3 placementPos = transform.position + transform.forward * LevelGrid.Instance.tileSize;
+        if (LevelGrid.Instance == null) return Vector2Int.zero;
+
+        Vector3 placementPos = transform.position + transform.forward * LevelGrid.Instance.TileSize;
         return LevelGrid.Instance.WorldToGrid(placementPos);
     }
     
@@ -219,13 +227,13 @@ public class PlayerGrabSystem : NetworkBehaviour
     {
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, grabDistance);
-        
+
         if (Application.isPlaying && LevelGrid.Instance != null)
         {
             Vector2Int gridPos = GetPlacementGridPosition();
             Vector3 worldPos = LevelGrid.Instance.GridToWorld(gridPos);
             Gizmos.color = Color.green;
-            Gizmos.DrawWireCube(worldPos, Vector3.one * LevelGrid.Instance.tileSize * 0.9f);
+            Gizmos.DrawWireCube(worldPos, Vector3.one * LevelGrid.Instance.TileSize * 0.9f);
         }
     }
     

@@ -3,20 +3,22 @@ using Unity.Netcode;
 
 public class PlaceableObject : NetworkBehaviour, IGrabbable
 {
+    [Header("Configuration")]
+    [SerializeField] private GameConfig config;
+
     [Header("State")]
     private NetworkVariable<bool> isPlaced = new NetworkVariable<bool>(false);
     private NetworkVariable<bool> isBeingHeld = new NetworkVariable<bool>(false);
     public Vector2Int GridPosition { get; private set; }
-    
+
     [Header("Visual Feedback")]
     [SerializeField] private Material validPlacementMaterial;
     [SerializeField] private Material invalidPlacementMaterial;
     [SerializeField] private Material placedMaterial;
-    
-    [Header("Physics Hold Settings")]
-    [SerializeField] private float holdForce = 500f;
-    [SerializeField] private float holdDrag = 10f;
-    
+
+    private float holdForce => config != null ? config.objectHoldForce : 500f;
+    private float holdDrag => config != null ? config.objectHoldDrag : 10f;
+
     private Renderer objRenderer;
     private Rigidbody rb;
     private Material originalMaterial;

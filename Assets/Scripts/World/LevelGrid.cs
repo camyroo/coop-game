@@ -1,25 +1,31 @@
 using System.Collections.Generic;
 using UnityEngine;
 using System;
+using Unity.Netcode;
 
-public class LevelGrid : MonoBehaviour
+public class LevelGrid : NetworkBehaviour
 {
     public static LevelGrid Instance { get; private set; }
-    
+
+    [Header("Configuration")]
+    [SerializeField] private GameConfig config;
+
     [Header("Settings")]
-    [SerializeField] private float tileSize = 2f;
-    [SerializeField] private Vector2Int gridSize = new Vector2Int(20, 20);
     [SerializeField] private bool debugDraw = false;
-    
+
+    private float tileSize => config != null ? config.gridTileSize : 2f;
+    private Vector2Int gridSize => config != null ? config.gridSize : new Vector2Int(20, 20);
+
     private Dictionary<Vector2Int, PlaceableObject> gridObjects = new Dictionary<Vector2Int, PlaceableObject>();
-    
+    private NetworkList<Vector2Int> occupiedPositions;
+
     // Events
     public event Action<Vector2Int, PlaceableObject> OnObjectPlaced;
     public event Action<Vector2Int, PlaceableObject> OnObjectRemoved;
-    
+
     public float TileSize => tileSize;
     public Vector2Int GridSize => gridSize;
-    
+
     void Awake()
     {
         if (Instance != null && Instance != this)
@@ -28,6 +34,48 @@ public class LevelGrid : MonoBehaviour
             return;
         }
         Instance = this;
+
+        occupiedPositions = new NetworkList<Vector2Int>();
+    }
+
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+
+        if (!IsServer)
+        {
+            // Client: populate local grid from network list
+            occupiedPositions.OnListChanged += OnOccupiedPositionsChanged;
+            SyncGridFromNetwork();
+        }
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        base.OnNetworkDespawn();
+
+        if (!IsServer)
+        {
+            occupiedPositions.OnListChanged -= OnOccupiedPositionsChanged;
+        }
+    }
+
+    void OnOccupiedPositionsChanged(NetworkListEvent<Vector2Int> changeEvent)
+    {
+        // Rebuild grid state from network list on clients
+        SyncGridFromNetwork();
+    }
+
+    void SyncGridFromNetwork()
+    {
+        // Clear client-side tracking (keep objects dictionary for later use)
+        foreach (var pos in new List<Vector2Int>(gridObjects.Keys))
+        {
+            if (!occupiedPositions.Contains(pos))
+            {
+                gridObjects.Remove(pos);
+            }
+        }
     }
     
     #region Grid Conversion
@@ -53,35 +101,59 @@ public class LevelGrid : MonoBehaviour
     #endregion
     
     #region Grid Management
-    
+
     public bool CanPlaceAt(Vector2Int gridPos)
     {
-        return IsWithinBounds(gridPos) && !gridObjects.ContainsKey(gridPos);
+        if (!IsWithinBounds(gridPos)) return false;
+
+        // Check both local dictionary and network list
+        if (IsServer)
+        {
+            return !gridObjects.ContainsKey(gridPos);
+        }
+        else
+        {
+            return !occupiedPositions.Contains(gridPos);
+        }
     }
-    
+
     public void RegisterObject(Vector2Int gridPos, PlaceableObject obj)
     {
+        if (!IsServer)
+        {
+            Debug.LogWarning("Only server can register objects!");
+            return;
+        }
+
         if (!IsWithinBounds(gridPos))
         {
             Debug.LogWarning($"Trying to place object outside grid bounds: {gridPos}");
             return;
         }
-        
+
         if (gridObjects.ContainsKey(gridPos))
         {
             Debug.LogWarning($"Grid position {gridPos} already occupied!");
             return;
         }
-        
+
         gridObjects[gridPos] = obj;
+        occupiedPositions.Add(gridPos);
         OnObjectPlaced?.Invoke(gridPos, obj);
     }
-    
+
     public void UnregisterObject(Vector2Int gridPos)
     {
+        if (!IsServer)
+        {
+            Debug.LogWarning("Only server can unregister objects!");
+            return;
+        }
+
         if (gridObjects.TryGetValue(gridPos, out PlaceableObject obj))
         {
             gridObjects.Remove(gridPos);
+            occupiedPositions.Remove(gridPos);
             OnObjectRemoved?.Invoke(gridPos, obj);
         }
     }

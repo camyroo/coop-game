@@ -5,12 +5,16 @@ using Unity.Netcode;
 [RequireComponent(typeof(PlayerInput))]
 public class PlayerMovement : NetworkBehaviour
 {
-    [Header("Movement Settings")]
-    [SerializeField] private float moveSpeed = 5f;
-    [SerializeField] private float rotationSpeed = 10f;
+    [Header("Configuration")]
+    [SerializeField] private GameConfig config;
+
+    [Header("Movement Settings (Fallback)")]
     [SerializeField] private float acceleration = 20f;
     [SerializeField] private float deceleration = 15f;
-    
+
+    private float moveSpeed => config != null ? config.playerMoveSpeed : 5f;
+    private float rotationSpeed => config != null ? config.playerRotationSpeed : 10f;
+
     private Rigidbody rb;
     private PlayerInput playerInput;
     private Vector3 currentVelocity;
