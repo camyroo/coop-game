@@ -15,15 +15,17 @@ public enum GameState
 public class GameStateManager : NetworkBehaviour
 {
     public static GameStateManager Instance { get; private set; }
-    
+
     [Header("Game State")]
     public NetworkVariable<GameState> CurrentState = new NetworkVariable<GameState>(GameState.Menu);
     public NetworkVariable<float> GameTime = new NetworkVariable<float>(0f);
     public NetworkVariable<int> RoundNumber = new NetworkVariable<int>(1);
-    
-    [Header("Settings")]
-    [SerializeField] private float roundDuration = 300f; // 5 minutes
-    [SerializeField] private int maxRounds = 3;
+
+    [Header("Configuration")]
+    [SerializeField] private GameConfig config;
+
+    private float roundDuration => config != null ? config.roundDuration : 300f;
+    private int maxRounds => config != null ? config.maxRounds : 3;
     
     // Events
     public event Action<GameState, GameState> OnStateChanged;
