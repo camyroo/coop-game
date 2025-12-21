@@ -3,28 +3,24 @@ using Unity.Netcode;
 
 public class PlaceableObject : NetworkBehaviour, IGrabbable
 {
-    [Header("Configuration")]
-    [SerializeField] private GameConfig config;
-
-    [Header("State")]
-    private NetworkVariable<bool> isPlaced = new NetworkVariable<bool>(false);
-    private NetworkVariable<bool> isBeingHeld = new NetworkVariable<bool>(false);
-    public Vector2Int GridPosition { get; private set; }
-
+    [Header("Physics Settings")]
+    [SerializeField] private float holdForce = 300f;
+    [SerializeField] private float holdDrag = 10f;
+    
     [Header("Visual Feedback")]
     [SerializeField] private Material validPlacementMaterial;
     [SerializeField] private Material invalidPlacementMaterial;
     [SerializeField] private Material placedMaterial;
 
-    private float holdForce => config != null ? config.objectHoldForce : 500f;
-    private float holdDrag => config != null ? config.objectHoldDrag : 10f;
+    private NetworkVariable<bool> isPlaced = new NetworkVariable<bool>(false);
+    private NetworkVariable<bool> isBeingHeld = new NetworkVariable<bool>(false);
+    
+    public Vector2Int GridPosition { get; private set; }
 
     private Renderer objRenderer;
     private Rigidbody rb;
     private Material originalMaterial;
     private Transform targetHoldPoint;
-    
-    #region Unity Lifecycle
     
     void Awake()
     {
@@ -55,11 +51,13 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     {
         if (isBeingHeld.Value && targetHoldPoint != null && rb != null)
         {
-            ApplyHoldPhysics();
+            // Simple force-based holding
+            Vector3 direction = targetHoldPoint.position - transform.position;
+            rb.AddForce(direction * holdForce);
+            rb.linearVelocity *= (1f - holdDrag * Time.fixedDeltaTime);
+            rb.angularVelocity *= (1f - holdDrag * Time.fixedDeltaTime);
         }
     }
-    
-    #endregion
     
     #region IGrabbable Implementation
     
@@ -71,7 +69,15 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         isBeingHeld.Value = true;
         targetHoldPoint = holdPoint;
         
-        ConfigurePhysicsForHold();
+        // Setup physics for holding
+        if (rb != null)
+        {
+            rb.isKinematic = false;
+            rb.useGravity = false;
+            rb.linearDamping = 0;
+            rb.angularDamping = 0.5f;
+        }
+        
         UnregisterFromGrid();
     }
     
@@ -82,7 +88,15 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         isBeingHeld.Value = false;
         targetHoldPoint = null;
         
-        ConfigurePhysicsForDrop();
+        // Restore normal physics
+        if (rb != null)
+        {
+            rb.isKinematic = false;
+            rb.useGravity = true;
+            rb.linearDamping = 0.5f;
+            rb.angularDamping = 0.5f;
+        }
+        
         RestoreVisuals();
     }
     
@@ -96,7 +110,16 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         GridPosition = gridPosition;
         
         SnapToGrid(gridPosition);
-        ConfigurePhysicsForPlacement();
+        
+        // Lock in place
+        if (rb != null)
+        {
+            rb.isKinematic = true;
+            rb.useGravity = false;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+        
         ApplyPlacedVisuals();
         RegisterToGrid(gridPosition);
     }
@@ -136,57 +159,14 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     
     #endregion
     
-    #region Physics Configuration
-    
-    private void ConfigurePhysicsForHold()
-    {
-        if (rb != null)
-        {
-            rb.isKinematic = false;
-            rb.useGravity = false;
-            rb.linearDamping = 0;
-            rb.angularDamping = 0.5f;
-        }
-    }
-    
-    private void ConfigurePhysicsForDrop()
-    {
-        if (rb != null)
-        {
-            rb.isKinematic = false;
-            rb.useGravity = true;
-            rb.linearDamping = 0.5f;
-            rb.angularDamping = 0.5f;
-        }
-    }
-    
-    private void ConfigurePhysicsForPlacement()
-    {
-        if (rb != null)
-        {
-            rb.isKinematic = true;
-            rb.useGravity = false;
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-        }
-    }
-    
-    private void ApplyHoldPhysics()
-    {
-        Vector3 forceDirection = targetHoldPoint.position - transform.position;
-        rb.AddForce(forceDirection * holdForce);
-        rb.linearVelocity *= (1f - holdDrag * Time.fixedDeltaTime);
-        rb.angularVelocity *= (1f - holdDrag * Time.fixedDeltaTime);
-    }
-    
-    #endregion
-    
     #region Grid Management
     
     private void SnapToGrid(Vector2Int gridPos)
     {
+        if (LevelGrid.Instance == null) return;
         Vector3 worldPos = LevelGrid.Instance.GridToWorld(gridPos, transform.position.y);
         transform.position = worldPos;
+        transform.rotation = Quaternion.identity;
     }
     
     private void RegisterToGrid(Vector2Int gridPos)
@@ -204,7 +184,7 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     
     #endregion
     
-    #region Network Variable Callbacks
+    #region Network Callbacks
     
     private void OnHeldStateChanged(bool oldValue, bool newValue)
     {

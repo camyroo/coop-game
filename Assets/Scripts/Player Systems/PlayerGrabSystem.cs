@@ -4,26 +4,19 @@ using Unity.Netcode;
 [RequireComponent(typeof(PlayerInput))]
 public class PlayerGrabSystem : NetworkBehaviour
 {
-    [Header("Configuration")]
-    [SerializeField] private GameConfig config;
-
     [Header("Settings")]
     [SerializeField] private LayerMask grabbableLayer;
+    [SerializeField] private float grabDistance = 2f;
     [SerializeField] private Vector3 holdOffset = new Vector3(0, 1, 1);
-
-    private float grabDistance => config != null ? config.grabDistance : 2f;
 
     private IGrabbable heldObject;
     private Transform holdPoint;
     private ulong heldObjectNetId;
     private PlayerInput playerInput;
     
-    #region Initialization
-    
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
-        
         playerInput = GetComponent<PlayerInput>();
         CreateHoldPoint();
     }
@@ -36,19 +29,10 @@ public class PlayerGrabSystem : NetworkBehaviour
         holdPoint.localPosition = holdOffset;
     }
     
-    #endregion
-    
-    #region Update Loop
-    
     void Update()
     {
         if (!IsOwner) return;
         
-        HandleInput();
-    }
-    
-    void HandleInput()
-    {
         if (heldObject == null)
         {
             if (playerInput.GrabPressed)
@@ -71,10 +55,6 @@ public class PlayerGrabSystem : NetworkBehaviour
             }
         }
     }
-    
-    #endregion
-    
-    #region Grab Logic
     
     void TryGrab()
     {
@@ -123,7 +103,6 @@ public class PlayerGrabSystem : NetworkBehaviour
             {
                 netObj.TrySetParent(holdPoint);
                 grabbable.OnGrabbed(holdPoint);
-                
                 SetHeldObjectClientRpc(objectId);
             }
         }
@@ -140,10 +119,6 @@ public class PlayerGrabSystem : NetworkBehaviour
             heldObjectNetId = objectId;
         }
     }
-    
-    #endregion
-    
-    #region Place/Drop Logic
     
     void UpdatePreview()
     {
@@ -219,23 +194,9 @@ public class PlayerGrabSystem : NetworkBehaviour
         heldObjectNetId = 0;
     }
     
-    #endregion
-    
-    #region Debug Visualization
-    
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, grabDistance);
-
-        if (Application.isPlaying && LevelGrid.Instance != null)
-        {
-            Vector2Int gridPos = GetPlacementGridPosition();
-            Vector3 worldPos = LevelGrid.Instance.GridToWorld(gridPos);
-            Gizmos.color = Color.green;
-            Gizmos.DrawWireCube(worldPos, Vector3.one * LevelGrid.Instance.TileSize * 0.9f);
-        }
     }
-    
-    #endregion
 }

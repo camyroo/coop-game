@@ -6,7 +6,7 @@ public class PlayerController : NetworkBehaviour
 {
     [Header("Player Identity")]
     public NetworkVariable<int> playerNumber = new NetworkVariable<int>();
-    public NetworkVariable<Color> playerColor = new NetworkVariable<Color>();
+    public NetworkVariable<Color> playerColor = new NetworkVariable<Color>(new Color(1f, 0.5f, 0f, 1f)); // Orange
     private string playerName;
     
     [Header("UI")]
@@ -46,20 +46,23 @@ public class PlayerController : NetworkBehaviour
     
     void ApplyVisuals()
     {
-        if (playerRenderer != null)
-        {
-            playerRenderer.material.color = playerColor.Value;
-        }
+        // Debug.Log($"ApplyVisuals called. PlayerColor: {playerColor.Value}, Renderer: {playerRenderer != null}");
+        
+        // if (playerRenderer != null)
+        // {
+        //     playerRenderer.material.color = playerColor.Value;
+        //     Debug.Log($"Set material color to: {playerRenderer.material.color}");
+        // }
         
         UpdateNameText();
     }
     
     void OnColorChanged(Color oldColor, Color newColor)
     {
-        if (playerRenderer != null)
-        {
-            playerRenderer.material.color = newColor;
-        }
+        // if (playerRenderer != null)
+        // {
+        //     playerRenderer.material.color = newColor;
+        // }
     }
     
     void UpdateNameText()

@@ -96,7 +96,39 @@ public class NetworkingManager : MonoBehaviour
                 if (lobbyCode == code)
                 {
                     Debug.Log($"Found lobby with code {code}!");
-                    await SteamMatchmaking.JoinLobbyAsync(lobby.Id);
+                    
+                    // Join the lobby
+                    var joinResult = await lobby.Join();
+                    
+                    if (joinResult != RoomEnter.Success)
+                    {
+                        Debug.LogError($"Failed to join lobby: {joinResult}");
+                        return;
+                    }
+                    
+                    // Store the lobby
+                    currentLobby = lobby;
+                    currentJoinCode = code;
+                    
+                    // Get the host's Steam ID and tell transport to connect to them
+                    if (ulong.TryParse(lobby.GetData("HostSteamID"), out ulong hostSteamId))
+                    {
+                        transport.targetSteamId = hostSteamId;
+                        Debug.Log($"Connecting to host: {hostSteamId}");
+                    }
+                    else
+                    {
+                        Debug.LogError("Could not parse host Steam ID");
+                        return;
+                    }
+                    
+                    // Small delay to ensure everything is set up
+                    await System.Threading.Tasks.Task.Delay(100);
+                    
+                    // Actually start the client
+                    NetworkManager.Singleton.StartClient();
+                    OnConnectionStatusChanged?.Invoke(true);
+                    
                     return;
                 }
             }
@@ -154,6 +186,7 @@ public class NetworkingManager : MonoBehaviour
         Debug.Log($"Client {clientId} disconnected");
         OnPlayerCountChanged?.Invoke(NetworkManager.Singleton.ConnectedClients.Count);
     }
+    
     
     #endregion
 }

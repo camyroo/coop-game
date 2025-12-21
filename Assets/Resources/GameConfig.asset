@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f26c9a5c86d23494ea0b2c9244823283, type: 3}
+  m_Name: GameConfig
+  m_EditorClassIdentifier: Assembly-CSharp::GameConfig
+  maxPlayers: 4
+  tickRate: 60
+  roundDuration: 300
+  maxRounds: 3
+  friendlyFire: 0
+  playerMoveSpeed: 5
+  playerRotationSpeed: 10
+  grabDistance: 2
+  maxPlaceableObjects: 50
+  objectHoldForce: 500
+  objectHoldDrag: 10
+  gridTileSize: 2
+  gridSize: {x: 20, y: 20}
