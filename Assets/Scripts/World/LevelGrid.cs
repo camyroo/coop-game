@@ -17,6 +17,13 @@ public class LevelGrid : NetworkBehaviour
     [SerializeField] private Material gridMaterial;
     [SerializeField] private bool showGridInGame = true;
 
+    [Header("Grid Highlight")]
+    [SerializeField] private Material highlightMaterial;
+    [SerializeField] private Color highlightValidColor = new Color(0, 1, 0, 0.3f); // Green
+    [SerializeField] private Color highlightInvalidColor = new Color(1, 0, 0, 0.3f); // Red
+
+    private GameObject gridHighlight;
+
     private float tileSize => config != null ? config.gridTileSize : 2f;
     private Vector2Int gridSize => config != null ? config.gridSize : new Vector2Int(20, 20);
 
@@ -38,6 +45,7 @@ public class LevelGrid : NetworkBehaviour
         {
             CreateGridPlane();
         }
+        CreateGridHighlight();
     }
 
 
@@ -117,19 +125,64 @@ public class LevelGrid : NetworkBehaviour
         }
     }
 
+    void CreateGridHighlight()
+    {
+        // Create a thin cube to highlight the grid cell
+        gridHighlight = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        gridHighlight.name = "Grid Highlight";
+        Destroy(gridHighlight.GetComponent<Collider>()); // No collision
+
+        // Make it thin and flat
+        gridHighlight.transform.localScale = new Vector3(tileSize * 0.95f, 0.1f, tileSize * 0.95f);
+        gridHighlight.transform.position = new Vector3(0, 0.02f, 0); // Slightly above grid
+
+        // Apply material
+        if (highlightMaterial != null)
+        {
+            gridHighlight.GetComponent<Renderer>().material = highlightMaterial;
+        }
+
+        gridHighlight.SetActive(false); // Hidden by default
+    }
+
+    public void ShowHighlight(Vector2Int gridPos, bool isValid)
+    {
+        if (gridHighlight == null) return;
+
+        gridHighlight.SetActive(true);
+        Vector3 worldPos = GridToWorld(gridPos, 0.02f); // Slightly above ground
+        gridHighlight.transform.position = worldPos;
+
+        // Change color based on validity
+        if (highlightMaterial != null)
+        {
+            Color targetColor = isValid ? highlightValidColor : highlightInvalidColor;
+            highlightMaterial.SetColor("_Color", targetColor);
+        }
+    }
+
+    public void HideHighlight()
+    {
+        if (gridHighlight != null)
+        {
+            gridHighlight.SetActive(false);
+        }
+    }
+
 
     #region Grid Conversion
 
     public Vector2Int WorldToGrid(Vector3 worldPos)
     {
-        int x = Mathf.RoundToInt(worldPos.x / tileSize);
-        int z = Mathf.RoundToInt(worldPos.z / tileSize);
+        int x = Mathf.FloorToInt(worldPos.x / tileSize + 0.5f);
+        int z = Mathf.FloorToInt(worldPos.z / tileSize + 0.5f);
         return new Vector2Int(x, z);
     }
 
     public Vector3 GridToWorld(Vector2Int gridPos, float yHeight = 0)
     {
-        return new Vector3(gridPos.x * tileSize, yHeight, gridPos.y * tileSize);
+        // Add 0.5 to center the position in the grid cell instead of at the corner
+        return new Vector3((gridPos.x + 0.5f) * tileSize, yHeight, (gridPos.y + 0.5f) * tileSize);
     }
 
     public bool IsWithinBounds(Vector2Int gridPos)

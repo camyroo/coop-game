@@ -11,11 +11,17 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     [SerializeField] private Material validPlacementMaterial;
     [SerializeField] private Material invalidPlacementMaterial;
     [SerializeField] private Material placedMaterial;
+    [SerializeField] private Material lockedMaterial; // Optional: different material for locked state
 
     private NetworkVariable<bool> isPlaced = new NetworkVariable<bool>(false);
     private NetworkVariable<bool> isBeingHeld = new NetworkVariable<bool>(false);
+    private NetworkVariable<bool> isLocked = new NetworkVariable<bool>(false);
     
     public Vector2Int GridPosition { get; private set; }
+    
+    // Public properties for tools to check state
+    public bool IsLocked => isLocked.Value;
+    public bool IsPlaced => isPlaced.Value;
 
     private Renderer objRenderer;
     private Rigidbody rb;
@@ -38,6 +44,7 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         base.OnNetworkSpawn();
         isBeingHeld.OnValueChanged += OnHeldStateChanged;
         isPlaced.OnValueChanged += OnPlacedStateChanged;
+        isLocked.OnValueChanged += OnLockedStateChanged;
     }
     
     public override void OnNetworkDespawn()
@@ -45,6 +52,7 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         base.OnNetworkDespawn();
         isBeingHeld.OnValueChanged -= OnHeldStateChanged;
         isPlaced.OnValueChanged -= OnPlacedStateChanged;
+        isLocked.OnValueChanged -= OnLockedStateChanged;
     }
     
     void FixedUpdate()
@@ -64,6 +72,7 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     public void OnGrabbed(Transform holdPoint)
     {
         if (!IsServer) return;
+        if (isLocked.Value) return; // Can't grab locked objects
         
         isPlaced.Value = false;
         isBeingHeld.Value = true;
@@ -126,7 +135,34 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     
     public bool CanBeGrabbed()
     {
-        return !isBeingHeld.Value && !isPlaced.Value;
+        return !isBeingHeld.Value && !isLocked.Value;
+    }
+    
+    #endregion
+    
+    #region Tool Interaction Methods
+    
+    public void LockInPlace()
+    {
+        if (!IsServer) return;
+        
+        isLocked.Value = true;
+        
+        // Apply locked visual if available
+        if (objRenderer != null && lockedMaterial != null)
+        {
+            objRenderer.material = lockedMaterial;
+        }
+    }
+    
+    public void Unlock()
+    {
+        if (!IsServer) return;
+        
+        isLocked.Value = false;
+        
+        // Restore to placed visual
+        ApplyPlacedVisuals();
     }
     
     #endregion
@@ -164,6 +200,7 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     private void SnapToGrid(Vector2Int gridPos)
     {
         if (LevelGrid.Instance == null) return;
+        
         Vector3 worldPos = LevelGrid.Instance.GridToWorld(gridPos, transform.position.y);
         transform.position = worldPos;
         transform.rotation = Quaternion.identity;
@@ -199,6 +236,18 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         if (newValue)
         {
             ApplyPlacedVisuals();
+        }
+    }
+    
+    private void OnLockedStateChanged(bool oldValue, bool newValue)
+    {
+        if (newValue)
+        {
+            // Object just got locked
+            if (objRenderer != null && lockedMaterial != null)
+            {
+                objRenderer.material = lockedMaterial;
+            }
         }
     }
     

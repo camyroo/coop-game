@@ -13,14 +13,14 @@ public class PlayerGrabSystem : NetworkBehaviour
     private Transform holdPoint;
     private ulong heldObjectNetId;
     private PlayerInput playerInput;
-    
+
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
         playerInput = GetComponent<PlayerInput>();
         CreateHoldPoint();
     }
-    
+
     void CreateHoldPoint()
     {
         GameObject holdPointObj = new GameObject("HoldPoint");
@@ -28,13 +28,19 @@ public class PlayerGrabSystem : NetworkBehaviour
         holdPoint.SetParent(transform);
         holdPoint.localPosition = holdOffset;
     }
-    
+
     void Update()
     {
         if (!IsOwner) return;
-        
+
         if (heldObject == null)
         {
+            // Hide highlight when not holding anything
+            if (LevelGrid.Instance != null)
+            {
+                LevelGrid.Instance.HideHighlight();
+            }
+
             if (playerInput.GrabPressed)
             {
                 TryGrab();
@@ -43,23 +49,23 @@ public class PlayerGrabSystem : NetworkBehaviour
         else
         {
             UpdatePreview();
-            
+
             if (playerInput.PlacePressed)
             {
                 TryPlace();
             }
-            
+
             if (playerInput.DropPressed)
             {
                 Drop();
             }
         }
     }
-    
+
     void TryGrab()
     {
         IGrabbable grabbable = FindNearestGrabbable();
-        
+
         if (grabbable != null)
         {
             NetworkObject netObj = (grabbable as Component).GetComponent<NetworkObject>();
@@ -69,16 +75,16 @@ public class PlayerGrabSystem : NetworkBehaviour
             }
         }
     }
-    
+
     IGrabbable FindNearestGrabbable()
     {
         Collider[] nearbyObjects = Physics.OverlapSphere(transform.position, grabDistance, grabbableLayer);
-        
+
         if (nearbyObjects.Length == 0) return null;
-        
+
         Collider closest = nearbyObjects[0];
         float closestDist = Vector3.Distance(transform.position, closest.transform.position);
-        
+
         foreach (Collider col in nearbyObjects)
         {
             float dist = Vector3.Distance(transform.position, col.transform.position);
@@ -88,17 +94,17 @@ public class PlayerGrabSystem : NetworkBehaviour
                 closestDist = dist;
             }
         }
-        
+
         return closest.GetComponent<IGrabbable>();
     }
-    
+
     [ServerRpc]
     void GrabObjectServerRpc(ulong objectId)
     {
         if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(objectId, out NetworkObject netObj))
         {
             IGrabbable grabbable = netObj.GetComponent<IGrabbable>();
-            
+
             if (grabbable != null && grabbable.CanBeGrabbed())
             {
                 netObj.TrySetParent(holdPoint);
@@ -107,19 +113,19 @@ public class PlayerGrabSystem : NetworkBehaviour
             }
         }
     }
-    
+
     [ClientRpc]
     void SetHeldObjectClientRpc(ulong objectId)
     {
         if (!IsOwner) return;
-        
+
         if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(objectId, out NetworkObject netObj))
         {
             heldObject = netObj.GetComponent<IGrabbable>();
             heldObjectNetId = objectId;
         }
     }
-    
+
     void UpdatePreview()
     {
         PlaceableObject placeableObj = heldObject as PlaceableObject;
@@ -127,9 +133,14 @@ public class PlayerGrabSystem : NetworkBehaviour
 
         Vector2Int gridPos = GetPlacementGridPosition();
         bool canPlace = LevelGrid.Instance.CanPlaceAt(gridPos);
+
+        // Update object preview
         placeableObj.SetPlacementPreview(canPlace);
+
+        // Show grid highlight
+        LevelGrid.Instance.ShowHighlight(gridPos, canPlace);
     }
-    
+
     void TryPlace()
     {
         if (LevelGrid.Instance == null) return;
@@ -141,12 +152,16 @@ public class PlayerGrabSystem : NetworkBehaviour
             PlaceObjectServerRpc(heldObjectNetId, gridPos);
         }
     }
-    
+
     void Drop()
     {
         DropObjectServerRpc(heldObjectNetId);
+        if (LevelGrid.Instance != null)
+        {
+            LevelGrid.Instance.HideHighlight();
+        }
     }
-    
+
     Vector2Int GetPlacementGridPosition()
     {
         if (LevelGrid.Instance == null) return Vector2Int.zero;
@@ -154,7 +169,7 @@ public class PlayerGrabSystem : NetworkBehaviour
         Vector3 placementPos = transform.position + transform.forward * LevelGrid.Instance.TileSize;
         return LevelGrid.Instance.WorldToGrid(placementPos);
     }
-    
+
     [ServerRpc]
     void PlaceObjectServerRpc(ulong objectId, Vector2Int gridPos)
     {
@@ -169,7 +184,7 @@ public class PlayerGrabSystem : NetworkBehaviour
             }
         }
     }
-    
+
     [ServerRpc]
     void DropObjectServerRpc(ulong objectId)
     {
@@ -184,16 +199,22 @@ public class PlayerGrabSystem : NetworkBehaviour
             }
         }
     }
-    
+
     [ClientRpc]
     void ClearHeldObjectClientRpc()
     {
         if (!IsOwner) return;
-        
+
         heldObject = null;
         heldObjectNetId = 0;
+
+        // Hide highlight when clearing held object
+        if (LevelGrid.Instance != null)
+        {
+            LevelGrid.Instance.HideHighlight();
+        }
     }
-    
+
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.yellow;
