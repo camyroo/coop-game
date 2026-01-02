@@ -13,6 +13,10 @@ public class LevelGrid : NetworkBehaviour
     [Header("Settings")]
     [SerializeField] private bool debugDraw = false;
 
+    [Header("Visual Grid")]
+    [SerializeField] private Material gridMaterial;
+    [SerializeField] private bool showGridInGame = true;
+
     private float tileSize => config != null ? config.gridTileSize : 2f;
     private Vector2Int gridSize => config != null ? config.gridSize : new Vector2Int(20, 20);
 
@@ -25,6 +29,17 @@ public class LevelGrid : NetworkBehaviour
 
     public float TileSize => tileSize;
     public Vector2Int GridSize => gridSize;
+
+
+
+    void Start()
+    {
+        if (showGridInGame)
+        {
+            CreateGridPlane();
+        }
+    }
+
 
     void Awake()
     {
@@ -77,29 +92,54 @@ public class LevelGrid : NetworkBehaviour
             }
         }
     }
-    
+
+    void CreateGridPlane()
+    {
+        GameObject plane = GameObject.CreatePrimitive(PrimitiveType.Plane);
+        plane.name = "Grid Plane";
+        Destroy(plane.GetComponent<Collider>()); // Remove collider so it doesn't interfere
+
+        // Calculate plane size based on grid dimensions
+        float sizeX = gridSize.x * tileSize;
+        float sizeZ = gridSize.y * tileSize;
+
+        // Unity planes are 10x10 by default, so scale accordingly
+        plane.transform.localScale = new Vector3(sizeX / 10f, 1f, sizeZ / 10f);
+        plane.transform.position = new Vector3(0, 0.01f, 0); // Slightly above ground
+
+        // Apply the grid material
+        plane.GetComponent<Renderer>().material = gridMaterial;
+
+        // Update shader properties to match your grid
+        if (gridMaterial != null)
+        {
+            gridMaterial.SetFloat("_CellSize", tileSize);
+        }
+    }
+
+
     #region Grid Conversion
-    
+
     public Vector2Int WorldToGrid(Vector3 worldPos)
     {
         int x = Mathf.RoundToInt(worldPos.x / tileSize);
         int z = Mathf.RoundToInt(worldPos.z / tileSize);
         return new Vector2Int(x, z);
     }
-    
+
     public Vector3 GridToWorld(Vector2Int gridPos, float yHeight = 0)
     {
         return new Vector3(gridPos.x * tileSize, yHeight, gridPos.y * tileSize);
     }
-    
+
     public bool IsWithinBounds(Vector2Int gridPos)
     {
         return gridPos.x >= -gridSize.x / 2 && gridPos.x < gridSize.x / 2 &&
                gridPos.y >= -gridSize.y / 2 && gridPos.y < gridSize.y / 2;
     }
-    
+
     #endregion
-    
+
     #region Grid Management
 
     public bool CanPlaceAt(Vector2Int gridPos)
@@ -157,43 +197,43 @@ public class LevelGrid : NetworkBehaviour
             OnObjectRemoved?.Invoke(gridPos, obj);
         }
     }
-    
+
     public PlaceableObject GetObjectAt(Vector2Int gridPos)
     {
         gridObjects.TryGetValue(gridPos, out PlaceableObject obj);
         return obj;
     }
-    
+
     public void ClearGrid()
     {
         gridObjects.Clear();
     }
-    
+
     public int GetObjectCount()
     {
         return gridObjects.Count;
     }
-    
+
     #endregion
-    
+
     #region Debug Visualization
-    
+
     void OnDrawGizmos()
     {
         if (!debugDraw) return;
-        
+
         Gizmos.color = Color.green;
-        
+
         for (int x = -gridSize.x / 2; x < gridSize.x / 2; x++)
         {
             for (int z = -gridSize.y / 2; z < gridSize.y / 2; z++)
             {
                 Vector2Int gridPos = new Vector2Int(x, z);
                 Vector3 worldPos = GridToWorld(gridPos);
-                
+
                 // Draw grid square
                 Gizmos.DrawWireCube(worldPos, new Vector3(tileSize * 0.9f, 0.1f, tileSize * 0.9f));
-                
+
                 // Highlight occupied cells
                 if (Application.isPlaying && gridObjects.ContainsKey(gridPos))
                 {
@@ -204,6 +244,6 @@ public class LevelGrid : NetworkBehaviour
             }
         }
     }
-    
+
     #endregion
 }
