@@ -15,7 +15,7 @@ GameObject:
   - component: {fileID: 4448403368665360766}
   - component: {fileID: 4065705528163817989}
   - component: {fileID: -4104668389185251743}
-  m_Layer: 3
+  m_Layer: 6
   m_Name: Cylinder
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -182,7 +182,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlaceableObject
   ShowTopMostFoldoutHeaderGroup: 1
-  config: {fileID: 11400000, guid: 80ac92eba684a744989ddad6fd1302d7, type: 2}
-  validPlacementMaterial: {fileID: 2100000, guid: 21c038ff025da274389105622f6c9a05, type: 2}
-  invalidPlacementMaterial: {fileID: 2100000, guid: 451e8ff9d7711c0479253d5dd919a78e, type: 2}
-  placedMaterial: {fileID: 2100000, guid: 7360a5893c61d9e418198d52adb36734, type: 2}
+  holdForce: 300
+  holdDrag: 10
+  validMaterial: {fileID: 2100000, guid: 9fbc77c44cb8cf5408b2003970fa93b6, type: 2}
+  invalidMaterial: {fileID: 2100000, guid: 451e8ff9d7711c0479253d5dd919a78e, type: 2}
+  placedMaterial: {fileID: 2100000, guid: 21c038ff025da274389105622f6c9a05, type: 2}
+  lockedMaterial: {fileID: 2100000, guid: 7360a5893c61d9e418198d52adb36734, type: 2}

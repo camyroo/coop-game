@@ -7,47 +7,24 @@ public class LevelGrid : NetworkBehaviour
 {
     public static LevelGrid Instance { get; private set; }
 
-    [Header("Configuration")]
-    [SerializeField] private GameConfig config;
+    [Header("Grid Settings")]
+    [SerializeField] private float cellSize = 2f; 
+    [SerializeField] private Vector2Int gridBounds = new Vector2Int(20, 20);
 
-    [Header("Settings")]
-    [SerializeField] private bool debugDraw = false;
-
-    [Header("Visual Grid")]
+    [Header("Visualization")]
+    [SerializeField] private bool showGrid = true;
     [SerializeField] private Material gridMaterial;
-    [SerializeField] private bool showGridInGame = true;
 
     [Header("Grid Highlight")]
     [SerializeField] private Material highlightMaterial;
-    [SerializeField] private Color highlightValidColor = new Color(0, 1, 0, 0.3f); // Green
-    [SerializeField] private Color highlightInvalidColor = new Color(1, 0, 0, 0.3f); // Red
+    [SerializeField] private Color highlightValidColor = new Color(0, 1, 0, 0.3f);
+    [SerializeField] private Color highlightInvalidColor = new Color(1, 0, 0, 0.3f);
+    [SerializeField] private Color highlightToolColor = new Color(1, 0.5f, 0, 0.3f);
 
+    private Dictionary<Vector2Int, PlaceableObject> occupiedCells = new Dictionary<Vector2Int, PlaceableObject>();
     private GameObject gridHighlight;
 
-    private float tileSize => config != null ? config.gridTileSize : 2f;
-    private Vector2Int gridSize => config != null ? config.gridSize : new Vector2Int(20, 20);
-
-    private Dictionary<Vector2Int, PlaceableObject> gridObjects = new Dictionary<Vector2Int, PlaceableObject>();
-    private NetworkList<Vector2Int> occupiedPositions;
-
-    // Events
-    public event Action<Vector2Int, PlaceableObject> OnObjectPlaced;
-    public event Action<Vector2Int, PlaceableObject> OnObjectRemoved;
-
-    public float TileSize => tileSize;
-    public Vector2Int GridSize => gridSize;
-
-
-
-    void Start()
-    {
-        if (showGridInGame)
-        {
-            CreateGridPlane();
-        }
-        CreateGridHighlight();
-    }
-
+    public float CellSize => cellSize;
 
     void Awake()
     {
@@ -57,107 +34,151 @@ public class LevelGrid : NetworkBehaviour
             return;
         }
         Instance = this;
-
-        occupiedPositions = new NetworkList<Vector2Int>();
     }
 
-    public override void OnNetworkSpawn()
+    void Start()
     {
-        base.OnNetworkSpawn();
+        if (showGrid) CreateGridVisual();
+        CreateHighlight();
+    }
 
+    #region Grid Conversion
+
+    public Vector2Int WorldToGrid(Vector3 worldPos)
+    {
+        return new Vector2Int(
+            Mathf.FloorToInt(worldPos.x / cellSize),
+            Mathf.FloorToInt(worldPos.z / cellSize)
+        );
+    }
+
+    public Vector3 GridToWorld(Vector2Int gridPos, float yHeight = 0)
+    {
+        return new Vector3(
+            (gridPos.x + 0.5f) * cellSize, 
+            yHeight, 
+            (gridPos.y + 0.5f) * cellSize
+        );
+    }
+
+    public bool IsInBounds(Vector2Int gridPos)
+    {
+        int halfX = gridBounds.x / 2;
+        int halfY = gridBounds.y / 2;
+        
+        return gridPos.x >= -halfX && gridPos.x < halfX &&
+            gridPos.y >= -halfY && gridPos.y < halfY;
+    }
+
+    #endregion
+
+    #region Placement Management
+
+    public bool CanPlaceAt(Vector2Int gridPos)
+    {
+        return IsInBounds(gridPos) && !occupiedCells.ContainsKey(gridPos);
+    }
+
+    public void Register(Vector2Int gridPos, PlaceableObject obj)
+    {
         if (!IsServer)
         {
-            // Client: populate local grid from network list
-            occupiedPositions.OnListChanged += OnOccupiedPositionsChanged;
-            SyncGridFromNetwork();
+            Debug.LogWarning("Only server can register objects");
+            return;
+        }
+
+        if (CanPlaceAt(gridPos))
+        {
+            occupiedCells[gridPos] = obj;
         }
     }
 
-    public override void OnNetworkDespawn()
+    public void Unregister(Vector2Int gridPos)
     {
-        base.OnNetworkDespawn();
-
         if (!IsServer)
         {
-            occupiedPositions.OnListChanged -= OnOccupiedPositionsChanged;
+            Debug.LogWarning("Only server can unregister objects");
+            return;
         }
+
+        occupiedCells.Remove(gridPos);
     }
 
-    void OnOccupiedPositionsChanged(NetworkListEvent<Vector2Int> changeEvent)
+    public PlaceableObject GetObjectAt(Vector2Int gridPos)
     {
-        // Rebuild grid state from network list on clients
-        SyncGridFromNetwork();
+        occupiedCells.TryGetValue(gridPos, out PlaceableObject obj);
+        return obj;
     }
 
-    void SyncGridFromNetwork()
-    {
-        // Clear client-side tracking (keep objects dictionary for later use)
-        foreach (var pos in new List<Vector2Int>(gridObjects.Keys))
-        {
-            if (!occupiedPositions.Contains(pos))
-            {
-                gridObjects.Remove(pos);
-            }
-        }
-    }
+    #endregion
 
-    void CreateGridPlane()
+    #region Visualization
+
+    void CreateGridVisual()
     {
         GameObject plane = GameObject.CreatePrimitive(PrimitiveType.Plane);
         plane.name = "Grid Plane";
-        Destroy(plane.GetComponent<Collider>()); // Remove collider so it doesn't interfere
+        Destroy(plane.GetComponent<Collider>());
 
-        // Calculate plane size based on grid dimensions
-        float sizeX = gridSize.x * tileSize;
-        float sizeZ = gridSize.y * tileSize;
-
-        // Unity planes are 10x10 by default, so scale accordingly
+        float sizeX = gridBounds.x * cellSize;
+        float sizeZ = gridBounds.y * cellSize;
         plane.transform.localScale = new Vector3(sizeX / 10f, 1f, sizeZ / 10f);
-        plane.transform.position = new Vector3(0, 0.01f, 0); // Slightly above ground
+        plane.transform.position = new Vector3(0, 0.01f, 0);
 
-        // Apply the grid material
-        plane.GetComponent<Renderer>().material = gridMaterial;
-
-        // Update shader properties to match your grid
         if (gridMaterial != null)
         {
-            gridMaterial.SetFloat("_CellSize", tileSize);
+            plane.GetComponent<Renderer>().material = gridMaterial;
+            gridMaterial.SetFloat("_CellSize", cellSize);
         }
     }
 
-    void CreateGridHighlight()
+    void CreateHighlight()
     {
-        // Create a thin cube to highlight the grid cell
         gridHighlight = GameObject.CreatePrimitive(PrimitiveType.Cube);
         gridHighlight.name = "Grid Highlight";
-        Destroy(gridHighlight.GetComponent<Collider>()); // No collision
+        Destroy(gridHighlight.GetComponent<Collider>());
 
-        // Make it thin and flat
-        gridHighlight.transform.localScale = new Vector3(tileSize * 0.95f, 0.1f, tileSize * 0.95f);
-        gridHighlight.transform.position = new Vector3(0, 0.02f, 0); // Slightly above grid
+        gridHighlight.transform.localScale = new Vector3(cellSize * 0.95f, 0.1f, cellSize * 0.95f);
+        gridHighlight.transform.position = new Vector3(0, 0.02f, 0);
 
-        // Apply material
         if (highlightMaterial != null)
         {
-            gridHighlight.GetComponent<Renderer>().material = highlightMaterial;
+            // Create an instance of the material for this highlight
+            Material matInstance = new Material(highlightMaterial);
+            gridHighlight.GetComponent<Renderer>().material = matInstance;
         }
 
-        gridHighlight.SetActive(false); // Hidden by default
+        gridHighlight.SetActive(false);
     }
 
     public void ShowHighlight(Vector2Int gridPos, bool isValid)
     {
         if (gridHighlight == null) return;
+        if (!IsInBounds(gridPos)) return;
 
         gridHighlight.SetActive(true);
-        Vector3 worldPos = GridToWorld(gridPos, 0.02f); // Slightly above ground
-        gridHighlight.transform.position = worldPos;
+        gridHighlight.transform.position = GridToWorld(gridPos, 0.02f);
 
-        // Change color based on validity
-        if (highlightMaterial != null)
+        Renderer rend = gridHighlight.GetComponent<Renderer>();
+        if (rend != null)
         {
-            Color targetColor = isValid ? highlightValidColor : highlightInvalidColor;
-            highlightMaterial.SetColor("_Color", targetColor);
+            Color color = isValid ? highlightValidColor : highlightInvalidColor;
+            rend.material.color = color;
+        }
+    }
+
+    public void ShowToolHighlight(Vector2Int gridPos, bool canUse)
+    {
+        if (gridHighlight == null) return;
+        if (!IsInBounds(gridPos)) return;
+
+        gridHighlight.SetActive(true);
+        gridHighlight.transform.position = GridToWorld(gridPos, 0.02f);
+
+        Renderer rend = gridHighlight.GetComponent<Renderer>();
+        if (rend != null)
+        {
+            rend.material.color = highlightToolColor;
         }
     }
 
@@ -169,129 +190,28 @@ public class LevelGrid : NetworkBehaviour
         }
     }
 
-
-    #region Grid Conversion
-
-    public Vector2Int WorldToGrid(Vector3 worldPos)
-    {
-        int x = Mathf.FloorToInt(worldPos.x / tileSize + 0.5f);
-        int z = Mathf.FloorToInt(worldPos.z / tileSize + 0.5f);
-        return new Vector2Int(x, z);
-    }
-
-    public Vector3 GridToWorld(Vector2Int gridPos, float yHeight = 0)
-    {
-        // Add 0.5 to center the position in the grid cell instead of at the corner
-        return new Vector3((gridPos.x + 0.5f) * tileSize, yHeight, (gridPos.y + 0.5f) * tileSize);
-    }
-
-    public bool IsWithinBounds(Vector2Int gridPos)
-    {
-        return gridPos.x >= -gridSize.x / 2 && gridPos.x < gridSize.x / 2 &&
-               gridPos.y >= -gridSize.y / 2 && gridPos.y < gridSize.y / 2;
-    }
-
     #endregion
 
-    #region Grid Management
-
-    public bool CanPlaceAt(Vector2Int gridPos)
-    {
-        if (!IsWithinBounds(gridPos)) return false;
-
-        // Check both local dictionary and network list
-        if (IsServer)
-        {
-            return !gridObjects.ContainsKey(gridPos);
-        }
-        else
-        {
-            return !occupiedPositions.Contains(gridPos);
-        }
-    }
-
-    public void RegisterObject(Vector2Int gridPos, PlaceableObject obj)
-    {
-        if (!IsServer)
-        {
-            Debug.LogWarning("Only server can register objects!");
-            return;
-        }
-
-        if (!IsWithinBounds(gridPos))
-        {
-            Debug.LogWarning($"Trying to place object outside grid bounds: {gridPos}");
-            return;
-        }
-
-        if (gridObjects.ContainsKey(gridPos))
-        {
-            Debug.LogWarning($"Grid position {gridPos} already occupied!");
-            return;
-        }
-
-        gridObjects[gridPos] = obj;
-        occupiedPositions.Add(gridPos);
-        OnObjectPlaced?.Invoke(gridPos, obj);
-    }
-
-    public void UnregisterObject(Vector2Int gridPos)
-    {
-        if (!IsServer)
-        {
-            Debug.LogWarning("Only server can unregister objects!");
-            return;
-        }
-
-        if (gridObjects.TryGetValue(gridPos, out PlaceableObject obj))
-        {
-            gridObjects.Remove(gridPos);
-            occupiedPositions.Remove(gridPos);
-            OnObjectRemoved?.Invoke(gridPos, obj);
-        }
-    }
-
-    public PlaceableObject GetObjectAt(Vector2Int gridPos)
-    {
-        gridObjects.TryGetValue(gridPos, out PlaceableObject obj);
-        return obj;
-    }
-
-    public void ClearGrid()
-    {
-        gridObjects.Clear();
-    }
-
-    public int GetObjectCount()
-    {
-        return gridObjects.Count;
-    }
-
-    #endregion
-
-    #region Debug Visualization
+    #region Debug
 
     void OnDrawGizmos()
     {
-        if (!debugDraw) return;
+        if (!showGrid) return;
 
         Gizmos.color = Color.green;
-
-        for (int x = -gridSize.x / 2; x < gridSize.x / 2; x++)
+        for (int x = -gridBounds.x / 2; x < gridBounds.x / 2; x++)
         {
-            for (int z = -gridSize.y / 2; z < gridSize.y / 2; z++)
+            for (int z = -gridBounds.y / 2; z < gridBounds.y / 2; z++)
             {
                 Vector2Int gridPos = new Vector2Int(x, z);
                 Vector3 worldPos = GridToWorld(gridPos);
 
-                // Draw grid square
-                Gizmos.DrawWireCube(worldPos, new Vector3(tileSize * 0.9f, 0.1f, tileSize * 0.9f));
+                Gizmos.DrawWireCube(worldPos, new Vector3(cellSize * 0.9f, 0.1f, cellSize * 0.9f));
 
-                // Highlight occupied cells
-                if (Application.isPlaying && gridObjects.ContainsKey(gridPos))
+                if (Application.isPlaying && occupiedCells.ContainsKey(gridPos))
                 {
                     Gizmos.color = Color.red;
-                    Gizmos.DrawCube(worldPos, new Vector3(tileSize * 0.8f, 0.2f, tileSize * 0.8f));
+                    Gizmos.DrawCube(worldPos, new Vector3(cellSize * 0.8f, 0.2f, cellSize * 0.8f));
                     Gizmos.color = Color.green;
                 }
             }

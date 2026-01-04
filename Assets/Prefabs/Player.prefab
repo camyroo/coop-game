@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 6138298058946651617}
   - component: {fileID: 7593156672743076234}
   - component: {fileID: 6041051478987424998}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: NameTag
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -157,7 +157,8 @@ GameObject:
   - component: {fileID: 1861558626351094736}
   - component: {fileID: -8285095455040789782}
   - component: {fileID: 8027804163942149338}
-  m_Layer: 0
+  - component: {fileID: -889870417115918668}
+  m_Layer: 3
   m_Name: Player
   m_TagString: Player
   m_Icon: {fileID: 0}
@@ -366,13 +367,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerGrabSystem
   ShowTopMostFoldoutHeaderGroup: 1
-  config: {fileID: 11400000, guid: 80ac92eba684a744989ddad6fd1302d7, type: 2}
   grabbableLayer:
     serializedVersion: 2
     m_Bits: 192
+  grabDistance: 2
+  toolUseDistance: 3
   holdOffset: {x: 0, y: 0.3, z: 1.5}
-  heldObjectLayer: HeldObject
-  playerLayer: Player
 --- !u!114 &6533925084741057571
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -387,7 +387,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PlayerController
   ShowTopMostFoldoutHeaderGroup: 1
   playerNumber:
-    m_InternalValue: 0
+    m_InternalValue: 1
   playerColor:
     m_InternalValue: {r: 0, g: 0, b: 0, a: 0}
   nameText: {fileID: 6041051478987424998}
@@ -443,6 +443,23 @@ CapsuleCollider:
   m_Height: 2
   m_Direction: 1
   m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &-889870417115918668
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3710265741278109118}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fd99176c84d6fb84d99f075e91cfa0e1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerInteraction
+  ShowTopMostFoldoutHeaderGroup: 1
+  interactionRange: 3
+  interactableLayer:
+    serializedVersion: 2
+    m_Bits: 128
 --- !u!1 &6255982244842815492
 GameObject:
   m_ObjectHideFlags: 0
@@ -455,7 +472,7 @@ GameObject:
   - component: {fileID: 1731181336431462052}
   - component: {fileID: 2922553378116997234}
   - component: {fileID: 632566836120587829}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Cube
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -567,7 +584,7 @@ GameObject:
   - component: {fileID: 6531145897515697725}
   - component: {fileID: 1204775154856499856}
   - component: {fileID: 272194669010822256}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Canvas
   m_TagString: Untagged
   m_Icon: {fileID: 0}

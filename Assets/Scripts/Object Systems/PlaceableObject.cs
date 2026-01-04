@@ -3,253 +3,211 @@ using Unity.Netcode;
 
 public class PlaceableObject : NetworkBehaviour, IGrabbable
 {
-    [Header("Physics Settings")]
+    [Header("Physics")]
     [SerializeField] private float holdForce = 300f;
     [SerializeField] private float holdDrag = 10f;
-    
-    [Header("Visual Feedback")]
-    [SerializeField] private Material validPlacementMaterial;
-    [SerializeField] private Material invalidPlacementMaterial;
-    [SerializeField] private Material placedMaterial;
-    [SerializeField] private Material lockedMaterial; // Optional: different material for locked state
 
-    private NetworkVariable<bool> isPlaced = new NetworkVariable<bool>(false);
+    [Header("Materials")]
+    [SerializeField] private Material validMaterial;
+    [SerializeField] private Material invalidMaterial;
+    [SerializeField] private Material placedMaterial;
+    [SerializeField] private Material lockedMaterial;
+
+    // Network state
     private NetworkVariable<bool> isBeingHeld = new NetworkVariable<bool>(false);
+    private NetworkVariable<bool> isPlaced = new NetworkVariable<bool>(false);
     private NetworkVariable<bool> isLocked = new NetworkVariable<bool>(false);
-    
+
     public Vector2Int GridPosition { get; private set; }
-    
-    // Public properties for tools to check state
     public bool IsLocked => isLocked.Value;
     public bool IsPlaced => isPlaced.Value;
 
-    private Renderer objRenderer;
     private Rigidbody rb;
+    private Renderer rend;
     private Material originalMaterial;
-    private Transform targetHoldPoint;
-    
+    private Transform holdPoint;
+
     void Awake()
     {
-        objRenderer = GetComponentInChildren<Renderer>();
         rb = GetComponent<Rigidbody>();
-        
-        if (objRenderer != null)
-        {
-            originalMaterial = objRenderer.material;
-        }
+        rend = GetComponentInChildren<Renderer>();
+        if (rend != null) originalMaterial = rend.material;
     }
-    
+
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
-        isBeingHeld.OnValueChanged += OnHeldStateChanged;
-        isPlaced.OnValueChanged += OnPlacedStateChanged;
-        isLocked.OnValueChanged += OnLockedStateChanged;
+        
+        // Subscribe to state changes
+        isBeingHeld.OnValueChanged += OnStateChanged;
+        isPlaced.OnValueChanged += OnStateChanged;
+        
+        // Initial setup for clients
+        if (!IsServer && rb != null)
+        {
+            UpdateClientPhysicsState();
+        }
     }
-    
+
     public override void OnNetworkDespawn()
     {
         base.OnNetworkDespawn();
-        isBeingHeld.OnValueChanged -= OnHeldStateChanged;
-        isPlaced.OnValueChanged -= OnPlacedStateChanged;
-        isLocked.OnValueChanged -= OnLockedStateChanged;
+        
+        isBeingHeld.OnValueChanged -= OnStateChanged;
+        isPlaced.OnValueChanged -= OnStateChanged;
     }
-    
+
+    void OnStateChanged(bool oldValue, bool newValue)
+    {
+        // Update client physics when state changes
+        if (!IsServer)
+        {
+            UpdateClientPhysicsState();
+        }
+    }
+
+    void UpdateClientPhysicsState()
+    {
+        if (!IsServer && rb != null)
+        {
+            // Only make kinematic if the object is being held or placed
+            if (isBeingHeld.Value || isPlaced.Value)
+            {
+                rb.isKinematic = true;
+                rb.detectCollisions = false;
+            }
+            else
+            {
+                rb.isKinematic = false;
+                rb.detectCollisions = true;
+            }
+        }
+    }
+
     void FixedUpdate()
     {
-        if (isBeingHeld.Value && targetHoldPoint != null && rb != null)
+        // Only simulate physics on server
+        if (!IsServer) return;
+        
+        if (isBeingHeld.Value && holdPoint != null && rb != null)
         {
-            // Simple force-based holding
-            Vector3 direction = targetHoldPoint.position - transform.position;
+            Vector3 direction = holdPoint.position - transform.position;
             rb.AddForce(direction * holdForce);
             rb.linearVelocity *= (1f - holdDrag * Time.fixedDeltaTime);
             rb.angularVelocity *= (1f - holdDrag * Time.fixedDeltaTime);
         }
     }
-    
-    #region IGrabbable Implementation
-    
-    public void OnGrabbed(Transform holdPoint)
+
+    #region IGrabbable
+
+    public bool CanBeGrabbed() => !isBeingHeld.Value && !isLocked.Value;
+
+    public void OnGrabbed(Transform newHoldPoint)
     {
-        if (!IsServer) return;
-        if (isLocked.Value) return; // Can't grab locked objects
-        
-        isPlaced.Value = false;
+        if (!IsServer || isLocked.Value) return;
+
         isBeingHeld.Value = true;
-        targetHoldPoint = holdPoint;
-        
-        // Setup physics for holding
+        isPlaced.Value = false;
+        holdPoint = newHoldPoint;
+
         if (rb != null)
         {
             rb.isKinematic = false;
             rb.useGravity = false;
-            rb.linearDamping = 0;
-            rb.angularDamping = 0.5f;
+            rb.excludeLayers = LayerMask.GetMask("Player");
+            rb.freezeRotation = true;
         }
-        
-        UnregisterFromGrid();
+
+        if (GridPosition != Vector2Int.zero)
+        {
+            LevelGrid.Instance?.Unregister(GridPosition);
+        }
     }
-    
+
     public void OnDropped()
     {
         if (!IsServer) return;
-        
+
         isBeingHeld.Value = false;
-        targetHoldPoint = null;
-        
-        // Restore normal physics
+        holdPoint = null;
+
         if (rb != null)
         {
             rb.isKinematic = false;
             rb.useGravity = true;
             rb.linearDamping = 0.5f;
-            rb.angularDamping = 0.5f;
+            rb.excludeLayers = 0;
+            rb.freezeRotation = false;
         }
-        
-        RestoreVisuals();
+
+        if (rend != null) rend.material = originalMaterial;
     }
-    
-    public void OnPlaced(Vector2Int gridPosition)
+
+    public void OnPlaced(Vector2Int gridPos)
     {
         if (!IsServer) return;
-        
-        isPlaced.Value = true;
+
         isBeingHeld.Value = false;
-        targetHoldPoint = null;
-        GridPosition = gridPosition;
-        
-        SnapToGrid(gridPosition);
-        
-        // Lock in place
+        isPlaced.Value = true;
+        holdPoint = null;
+        GridPosition = gridPos;
+
+        // Snap to grid
+        transform.position = LevelGrid.Instance.GridToWorld(gridPos, transform.position.y);
+        transform.rotation = Quaternion.identity;
+
         if (rb != null)
         {
             rb.isKinematic = true;
             rb.useGravity = false;
             rb.linearVelocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
+            rb.excludeLayers = 0;
         }
-        
-        ApplyPlacedVisuals();
-        RegisterToGrid(gridPosition);
+
+        if (rend != null && placedMaterial != null)
+        {
+            rend.material = placedMaterial;
+        }
+
+        LevelGrid.Instance?.Register(gridPos, this);
     }
-    
-    public bool CanBeGrabbed()
-    {
-        return !isBeingHeld.Value && !isLocked.Value;
-    }
-    
+
     #endregion
-    
-    #region Tool Interaction Methods
-    
+
+    #region Visual Preview
+
+    public void SetPlacementPreview(bool canPlace)
+    {
+        if (rend != null)
+        {
+            rend.material = canPlace ? validMaterial : invalidMaterial;
+        }
+    }
+
+    #endregion
+
+    #region Tool Interactions
+
     public void LockInPlace()
     {
         if (!IsServer) return;
-        
         isLocked.Value = true;
-        
-        // Apply locked visual if available
-        if (objRenderer != null && lockedMaterial != null)
+        if (rend != null && lockedMaterial != null)
         {
-            objRenderer.material = lockedMaterial;
+            rend.material = lockedMaterial;
         }
     }
-    
+
     public void Unlock()
     {
         if (!IsServer) return;
-        
         isLocked.Value = false;
-        
-        // Restore to placed visual
-        ApplyPlacedVisuals();
-    }
-    
-    #endregion
-    
-    #region Visual Feedback
-    
-    public void SetPlacementPreview(bool canPlace)
-    {
-        if (objRenderer != null)
+        if (rend != null && placedMaterial != null)
         {
-            objRenderer.material = canPlace ? validPlacementMaterial : invalidPlacementMaterial;
+            rend.material = placedMaterial;
         }
     }
-    
-    private void ApplyPlacedVisuals()
-    {
-        if (objRenderer != null)
-        {
-            objRenderer.material = placedMaterial != null ? placedMaterial : originalMaterial;
-        }
-    }
-    
-    private void RestoreVisuals()
-    {
-        if (objRenderer != null)
-        {
-            objRenderer.material = originalMaterial;
-        }
-    }
-    
-    #endregion
-    
-    #region Grid Management
-    
-    private void SnapToGrid(Vector2Int gridPos)
-    {
-        if (LevelGrid.Instance == null) return;
-        
-        Vector3 worldPos = LevelGrid.Instance.GridToWorld(gridPos, transform.position.y);
-        transform.position = worldPos;
-        transform.rotation = Quaternion.identity;
-    }
-    
-    private void RegisterToGrid(Vector2Int gridPos)
-    {
-        LevelGrid.Instance?.RegisterObject(gridPos, this);
-    }
-    
-    private void UnregisterFromGrid()
-    {
-        if (GridPosition != Vector2Int.zero)
-        {
-            LevelGrid.Instance?.UnregisterObject(GridPosition);
-        }
-    }
-    
-    #endregion
-    
-    #region Network Callbacks
-    
-    private void OnHeldStateChanged(bool oldValue, bool newValue)
-    {
-        if (newValue && rb != null)
-        {
-            rb.useGravity = false;
-        }
-    }
-    
-    private void OnPlacedStateChanged(bool oldValue, bool newValue)
-    {
-        if (newValue)
-        {
-            ApplyPlacedVisuals();
-        }
-    }
-    
-    private void OnLockedStateChanged(bool oldValue, bool newValue)
-    {
-        if (newValue)
-        {
-            // Object just got locked
-            if (objRenderer != null && lockedMaterial != null)
-            {
-                objRenderer.material = lockedMaterial;
-            }
-        }
-    }
-    
+
     #endregion
 }

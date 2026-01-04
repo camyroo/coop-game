@@ -7,12 +7,17 @@ public class PlayerGrabSystem : NetworkBehaviour
     [Header("Settings")]
     [SerializeField] private LayerMask grabbableLayer;
     [SerializeField] private float grabDistance = 2f;
+    [SerializeField] private float toolUseDistance = 3f;
     [SerializeField] private Vector3 holdOffset = new Vector3(0, 1, 1);
 
     private IGrabbable heldObject;
+    private ITool heldTool;
     private Transform holdPoint;
     private ulong heldObjectNetId;
     private PlayerInput playerInput;
+
+    public Transform HoldPoint => holdPoint;
+    public bool IsHoldingObject => heldObject != null;
 
     public override void OnNetworkSpawn()
     {
@@ -35,7 +40,6 @@ public class PlayerGrabSystem : NetworkBehaviour
 
         if (heldObject == null)
         {
-            // Hide highlight when not holding anything
             if (LevelGrid.Instance != null)
             {
                 LevelGrid.Instance.HideHighlight();
@@ -48,22 +52,116 @@ public class PlayerGrabSystem : NetworkBehaviour
         }
         else
         {
-            UpdatePreview();
-
-            if (playerInput.PlacePressed)
+            // Check if holding a tool
+            if (heldTool != null)
             {
-                TryPlace();
-            }
+                // Tool mode: highlight targeted grid cell
+                UpdateToolPreview();
 
-            if (playerInput.DropPressed)
-            {
-                Drop();
+                if (playerInput.GrabPressed)
+                {
+                    TryUseTool();
+                }
+
+                if (playerInput.DropPressed)
+                {
+                    Drop();
+                }
             }
+            else
+            {
+                // Regular object mode: show placement preview
+                UpdatePlacementPreview();
+
+                if (playerInput.PlacePressed)
+                {
+                    TryPlace();
+                }
+
+                if (playerInput.DropPressed)
+                {
+                    Drop();
+                }
+            }
+        }
+    }
+
+    public void GrabSpecificObject(ulong objectId)
+    {
+        if (!IsOwner) return;
+        
+        // Don't grab if already holding something
+        if (heldObject != null)
+        {
+            return;
+        }
+        
+        GrabObjectServerRpc(objectId);
+    }
+
+    public bool CanInteractWithStation()
+    {
+        // Don't allow station interaction if there's a grabbable object nearby
+        IGrabbable nearbyGrabbable = FindNearestGrabbable();
+        return nearbyGrabbable == null && heldObject == null;
+    }
+
+    Vector2Int GetTargetGridPosition()
+    {
+        if (LevelGrid.Instance == null) return Vector2Int.zero;
+        if (holdPoint == null) return Vector2Int.zero;
+
+        // Simply use where the hold point actually is
+        return LevelGrid.Instance.WorldToGrid(holdPoint.position);
+    }
+
+    void UpdatePlacementPreview()
+    {
+        PlaceableObject placeableObj = heldObject as PlaceableObject;
+        if (placeableObj == null || LevelGrid.Instance == null) return;
+
+        Vector2Int gridPos = GetTargetGridPosition();
+        
+        // Safety check: if grid position is way out of bounds, don't try to place
+        if (!LevelGrid.Instance.IsInBounds(gridPos))
+        {
+            placeableObj.SetPlacementPreview(false);
+            LevelGrid.Instance.HideHighlight();
+            return;
+        }
+        
+        bool canPlace = LevelGrid.Instance.CanPlaceAt(gridPos);
+        placeableObj.SetPlacementPreview(canPlace);
+        LevelGrid.Instance.ShowHighlight(gridPos, canPlace);
+    }
+
+    void UpdateToolPreview()
+    {
+        if (LevelGrid.Instance == null) return;
+
+        Vector2Int gridPos = GetTargetGridPosition();
+        PlaceableObject placeableObj = LevelGrid.Instance.GetObjectAt(gridPos);
+        
+        if (placeableObj != null && placeableObj.IsPlaced)
+        {
+            // Valid target - show tool highlight
+            LevelGrid.Instance.ShowToolHighlight(gridPos, true);
+        }
+        else
+        {
+            // Empty cell - hide highlight
+            LevelGrid.Instance.HideHighlight();
         }
     }
 
     void TryGrab()
     {
+        // Don't grab if already holding something
+        if (heldObject != null)
+        {
+            return;
+        }
+
         IGrabbable grabbable = FindNearestGrabbable();
 
         if (grabbable != null)
@@ -122,30 +220,53 @@ public class PlayerGrabSystem : NetworkBehaviour
         if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(objectId, out NetworkObject netObj))
         {
             heldObject = netObj.GetComponent<IGrabbable>();
+            heldTool = netObj.GetComponent<ITool>();
             heldObjectNetId = objectId;
+
+            if (heldTool != null)
+            {
+                Debug.Log($"Equipped tool: {heldTool.GetToolName()}");
+            }
         }
     }
 
-    void UpdatePreview()
+    void TryUseTool()
     {
-        PlaceableObject placeableObj = heldObject as PlaceableObject;
-        if (placeableObj == null || LevelGrid.Instance == null) return;
+        if (heldTool == null || !heldTool.CanBeUsed()) return;
+        if (LevelGrid.Instance == null) return;
 
-        Vector2Int gridPos = GetPlacementGridPosition();
-        bool canPlace = LevelGrid.Instance.CanPlaceAt(gridPos);
+        Vector2Int gridPos = GetTargetGridPosition();
+        PlaceableObject placeableObj = LevelGrid.Instance.GetObjectAt(gridPos);
+        
+        if (placeableObj != null)
+        {
+            NetworkObject targetObj = placeableObj.GetComponent<NetworkObject>();
+            if (targetObj != null)
+            {
+                UseToolServerRpc(heldObjectNetId, targetObj.NetworkObjectId);
+            }
+        }
+    }
 
-        // Update object preview
-        placeableObj.SetPlacementPreview(canPlace);
-
-        // Show grid highlight
-        LevelGrid.Instance.ShowHighlight(gridPos, canPlace);
+    [ServerRpc]
+    void UseToolServerRpc(ulong toolId, ulong targetId)
+    {
+        if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(toolId, out NetworkObject toolObj) &&
+            NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetId, out NetworkObject targetObj))
+        {
+            ITool tool = toolObj.GetComponent<ITool>();
+            if (tool != null && tool.CanBeUsed())
+            {
+                tool.OnUse(targetObj.gameObject);
+            }
+        }
     }
 
     void TryPlace()
     {
         if (LevelGrid.Instance == null) return;
 
-        Vector2Int gridPos = GetPlacementGridPosition();
+        Vector2Int gridPos = GetTargetGridPosition();
 
         if (LevelGrid.Instance.CanPlaceAt(gridPos))
         {
@@ -160,14 +281,6 @@ public class PlayerGrabSystem : NetworkBehaviour
         {
             LevelGrid.Instance.HideHighlight();
         }
-    }
-
-    Vector2Int GetPlacementGridPosition()
-    {
-        if (LevelGrid.Instance == null) return Vector2Int.zero;
-
-        Vector3 placementPos = transform.position + transform.forward * LevelGrid.Instance.TileSize;
-        return LevelGrid.Instance.WorldToGrid(placementPos);
     }
 
     [ServerRpc]
@@ -206,9 +319,9 @@ public class PlayerGrabSystem : NetworkBehaviour
         if (!IsOwner) return;
 
         heldObject = null;
+        heldTool = null;
         heldObjectNetId = 0;
 
-        // Hide highlight when clearing held object
         if (LevelGrid.Instance != null)
         {
             LevelGrid.Instance.HideHighlight();
@@ -219,5 +332,8 @@ public class PlayerGrabSystem : NetworkBehaviour
     {
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, grabDistance);
+        
+        Gizmos.color = Color.cyan;
+        Gizmos.DrawRay(transform.position + Vector3.up, transform.forward * toolUseDistance);
     }
 }

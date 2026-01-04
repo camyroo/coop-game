@@ -38,7 +38,7 @@ public class PlayerInput : NetworkBehaviour
         // Actions
         interactAction = new InputAction(binding: "<Keyboard>/e");
         grabAction = new InputAction(binding: "<Keyboard>/f");
-        placeAction = new InputAction(binding: "<Keyboard>/e");
+        placeAction = new InputAction(binding: "<Keyboard>/f");
         dropAction = new InputAction(binding: "<Keyboard>/q");
         
         // Enable all
