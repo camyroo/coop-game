@@ -21,7 +21,7 @@ public class LevelGrid : NetworkBehaviour
     [SerializeField] private Color highlightInvalidColor = new Color(1, 0, 0, 0.3f);
     [SerializeField] private Color highlightToolColor = new Color(1, 0.5f, 0, 0.3f);
 
-    private Dictionary<Vector2Int, PlaceableObject> occupiedCells = new Dictionary<Vector2Int, PlaceableObject>();
+    private Dictionary<Vector2Int, Dictionary<GridLayer, PlaceableObject>> gridCells = new Dictionary<Vector2Int, Dictionary<GridLayer, PlaceableObject>>();
     private GameObject gridHighlight;
 
     public float CellSize => cellSize;
@@ -81,27 +81,23 @@ public class LevelGrid : NetworkBehaviour
 
     public void Register(Vector2Int gridPos, PlaceableObject obj)
     {
-        if (!IsServer)
+        // Server validates placement, clients just track it
+        if (IsServer && !CanPlaceAt(gridPos))
         {
-            Debug.LogWarning("Only server can register objects");
+            Debug.LogWarning($"Cannot register at {gridPos}, cell already occupied");
             return;
         }
 
-        if (CanPlaceAt(gridPos))
-        {
-            occupiedCells[gridPos] = obj;
-        }
+        // Both server and clients track the registration
+        occupiedCells[gridPos] = obj;
+        Debug.Log($"[{(IsServer ? "SERVER" : "CLIENT")}] Registered object at {gridPos}");
     }
 
     public void Unregister(Vector2Int gridPos)
     {
-        if (!IsServer)
-        {
-            Debug.LogWarning("Only server can unregister objects");
-            return;
-        }
-
+        // Both server and clients can unregister
         occupiedCells.Remove(gridPos);
+        Debug.Log($"[{(IsServer ? "SERVER" : "CLIENT")}] Unregistered object at {gridPos}");
     }
 
     public PlaceableObject GetObjectAt(Vector2Int gridPos)

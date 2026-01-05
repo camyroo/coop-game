@@ -146,20 +146,32 @@ public class RefiningTool : NetworkBehaviour, IGrabbable, ITool
     {
         if (!IsServer) return;
 
+        Debug.Log($"[SERVER] Tool OnUse called on target: {target.name}");
+
         PlaceableObject placeableObj = target.GetComponent<PlaceableObject>();
         if (placeableObj != null)
         {
+            Debug.Log($"[SERVER] PlaceableObject found. IsLocked: {placeableObj.IsLocked}, IsPlaced: {placeableObj.IsPlaced}");
+            
             // Toggle lock state
             if (placeableObj.IsLocked)
             {
                 placeableObj.Unlock();
-                Debug.Log($"Unlocked {target.name}");
+                Debug.Log($"[SERVER] Unlocked {target.name}");
             }
             else if (placeableObj.IsPlaced)
             {
                 placeableObj.LockInPlace();
-                Debug.Log($"Locked {target.name}");
+                Debug.Log($"[SERVER] Locked {target.name}");
             }
+            else
+            {
+                Debug.Log($"[SERVER] Object is not placed, cannot lock/unlock");
+            }
+        }
+        else
+        {
+            Debug.LogError($"[SERVER] No PlaceableObject component found on {target.name}");
         }
     }
 

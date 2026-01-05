@@ -41,12 +41,16 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         // Subscribe to state changes
         isBeingHeld.OnValueChanged += OnStateChanged;
         isPlaced.OnValueChanged += OnStateChanged;
+        isLocked.OnValueChanged += OnLockedStateChanged;
         
         // Initial setup for clients
         if (!IsServer && rb != null)
         {
             UpdateClientPhysicsState();
         }
+        
+        // Apply initial visuals for all clients
+        UpdateVisuals();
     }
 
     public override void OnNetworkDespawn()
@@ -55,11 +59,27 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         
         isBeingHeld.OnValueChanged -= OnStateChanged;
         isPlaced.OnValueChanged -= OnStateChanged;
+        isLocked.OnValueChanged -= OnLockedStateChanged;
     }
 
     void OnStateChanged(bool oldValue, bool newValue)
     {
         // Update client physics when state changes
+        if (!IsServer)
+        {
+            UpdateClientPhysicsState();
+        }
+        
+        // Update visuals for all clients
+        UpdateVisuals();
+    }
+
+    void OnLockedStateChanged(bool oldValue, bool newValue)
+    {
+        // Update visuals when lock state changes
+        UpdateVisuals();
+        
+        // Update client physics
         if (!IsServer)
         {
             UpdateClientPhysicsState();
@@ -70,17 +90,44 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     {
         if (!IsServer && rb != null)
         {
-            // Only make kinematic if the object is being held or placed
-            if (isBeingHeld.Value || isPlaced.Value)
+            if (isBeingHeld.Value)
             {
+                // Being held: kinematic, no collisions (prevents pushing player)
                 rb.isKinematic = true;
                 rb.detectCollisions = false;
             }
+            else if (isPlaced.Value)
+            {
+                // Placed: kinematic, but KEEP collisions (so player can interact)
+                rb.isKinematic = true;
+                rb.detectCollisions = true;
+            }
             else
             {
+                // Free/dropped: normal physics with collisions
                 rb.isKinematic = false;
                 rb.detectCollisions = true;
             }
+        }
+    }
+
+    void UpdateVisuals()
+    {
+        if (rend == null) return;
+        
+        // Determine which material to show based on network state
+        // Priority: Locked > Placed > Original
+        if (isLocked.Value && lockedMaterial != null)
+        {
+            rend.material = lockedMaterial;
+        }
+        else if (isPlaced.Value && placedMaterial != null)
+        {
+            rend.material = placedMaterial;
+        }
+        else
+        {
+            rend.material = originalMaterial;
         }
     }
 
@@ -121,7 +168,15 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         if (GridPosition != Vector2Int.zero)
         {
             LevelGrid.Instance?.Unregister(GridPosition);
+            UnregisterOnClientsClientRpc(GridPosition);
         }
+    }
+
+    [ClientRpc]
+    void UnregisterOnClientsClientRpc(Vector2Int gridPos)
+    {
+        if (IsServer) return; // Server already unregistered
+        LevelGrid.Instance?.Unregister(gridPos);
     }
 
     public void OnDropped()
@@ -140,7 +195,7 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
             rb.freezeRotation = false;
         }
 
-        if (rend != null) rend.material = originalMaterial;
+        // Visual update happens automatically via OnStateChanged
     }
 
     public void OnPlaced(Vector2Int gridPos)
@@ -165,11 +220,18 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
             rb.excludeLayers = 0;
         }
 
-        if (rend != null && placedMaterial != null)
-        {
-            rend.material = placedMaterial;
-        }
+        LevelGrid.Instance?.Register(gridPos, this);
+        
+        // Tell all clients to register this object
+        RegisterOnClientsClientRpc(gridPos);
+    }
 
+    [ClientRpc]
+    void RegisterOnClientsClientRpc(Vector2Int gridPos)
+    {
+        if (IsServer) return; // Server already registered
+        
+        GridPosition = gridPos;
         LevelGrid.Instance?.Register(gridPos, this);
     }
 
@@ -193,20 +255,14 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     {
         if (!IsServer) return;
         isLocked.Value = true;
-        if (rend != null && lockedMaterial != null)
-        {
-            rend.material = lockedMaterial;
-        }
+        // Visual update happens automatically via OnLockedStateChanged
     }
 
     public void Unlock()
     {
         if (!IsServer) return;
         isLocked.Value = false;
-        if (rend != null && placedMaterial != null)
-        {
-            rend.material = placedMaterial;
-        }
+        // Visual update happens automatically via OnLockedStateChanged
     }
 
     #endregion

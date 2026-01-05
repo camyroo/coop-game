@@ -230,35 +230,59 @@ public class PlayerGrabSystem : NetworkBehaviour
         }
     }
 
-    void TryUseTool()
-    {
-        if (heldTool == null || !heldTool.CanBeUsed()) return;
-        if (LevelGrid.Instance == null) return;
+void TryUseTool()
+{
+    if (heldTool == null || !heldTool.CanBeUsed()) return;
+    if (LevelGrid.Instance == null) return;
 
-        Vector2Int gridPos = GetTargetGridPosition();
-        PlaceableObject placeableObj = LevelGrid.Instance.GetObjectAt(gridPos);
-        
-        if (placeableObj != null)
+    Vector2Int gridPos = GetTargetGridPosition();
+    Debug.Log($"[CLIENT] Tool targeting grid position: {gridPos}");
+    
+    PlaceableObject placeableObj = LevelGrid.Instance.GetObjectAt(gridPos);
+    
+    if (placeableObj != null)
+    {
+        Debug.Log($"[CLIENT] Found object at grid position, sending to server");
+        NetworkObject targetObj = placeableObj.GetComponent<NetworkObject>();
+        if (targetObj != null)
         {
-            NetworkObject targetObj = placeableObj.GetComponent<NetworkObject>();
-            if (targetObj != null)
-            {
-                UseToolServerRpc(heldObjectNetId, targetObj.NetworkObjectId);
-            }
+            Debug.Log($"[CLIENT] Sending UseToolServerRpc with IDs: tool={heldObjectNetId}, target={targetObj.NetworkObjectId}");
+            UseToolServerRpc(heldObjectNetId, targetObj.NetworkObjectId);
+        }
+        else
+        {
+            Debug.LogError($"[CLIENT] Object has no NetworkObject component!");
         }
     }
+    else
+    {
+        Debug.Log($"[CLIENT] No object found at grid position {gridPos}");
+    }
+}
 
     [ServerRpc]
     void UseToolServerRpc(ulong toolId, ulong targetId)
     {
+        Debug.Log($"[SERVER] UseToolServerRpc received: tool={toolId}, target={targetId}");
+        
         if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(toolId, out NetworkObject toolObj) &&
             NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetId, out NetworkObject targetObj))
         {
+            Debug.Log($"[SERVER] Found both tool and target objects");
             ITool tool = toolObj.GetComponent<ITool>();
             if (tool != null && tool.CanBeUsed())
             {
+                Debug.Log($"[SERVER] Calling tool.OnUse()");
                 tool.OnUse(targetObj.gameObject);
             }
+            else
+            {
+                Debug.LogError($"[SERVER] Tool is null or can't be used");
+            }
+        }
+        else
+        {
+            Debug.LogError($"[SERVER] Could not find tool or target in spawned objects");
         }
     }
 
