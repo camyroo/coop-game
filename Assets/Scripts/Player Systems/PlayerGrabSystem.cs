@@ -1,5 +1,6 @@
 using UnityEngine;
 using Unity.Netcode;
+using System.Collections.Generic;
 
 [RequireComponent(typeof(PlayerInput))]
 public class PlayerGrabSystem : NetworkBehaviour
@@ -130,7 +131,8 @@ public class PlayerGrabSystem : NetworkBehaviour
             return;
         }
         
-        bool canPlace = LevelGrid.Instance.CanPlaceAt(gridPos);
+        // Use the new layer-aware validation
+        bool canPlace = placeableObj.CanPlaceAtPosition(gridPos);
         placeableObj.SetPlacementPreview(canPlace);
         LevelGrid.Instance.ShowHighlight(gridPos, canPlace);
     }
@@ -140,9 +142,22 @@ public class PlayerGrabSystem : NetworkBehaviour
         if (LevelGrid.Instance == null) return;
 
         Vector2Int gridPos = GetTargetGridPosition();
-        PlaceableObject placeableObj = LevelGrid.Instance.GetObjectAt(gridPos);
         
-        if (placeableObj != null && placeableObj.IsPlaced)
+        // Tools can target any placed object on any layer
+        // Check all layers for placed objects
+        List<PlaceableObject> objectsAtPos = LevelGrid.Instance.GetAllObjectsAt(gridPos);
+        
+        PlaceableObject targetObject = null;
+        foreach (PlaceableObject obj in objectsAtPos)
+        {
+            if (obj.IsPlaced)
+            {
+                targetObject = obj;
+                break; // Found a valid target
+            }
+        }
+        
+        if (targetObject != null)
         {
             // Valid target - show tool highlight
             LevelGrid.Instance.ShowToolHighlight(gridPos, true);
@@ -230,35 +245,46 @@ public class PlayerGrabSystem : NetworkBehaviour
         }
     }
 
-void TryUseTool()
-{
-    if (heldTool == null || !heldTool.CanBeUsed()) return;
-    if (LevelGrid.Instance == null) return;
-
-    Vector2Int gridPos = GetTargetGridPosition();
-    Debug.Log($"[CLIENT] Tool targeting grid position: {gridPos}");
-    
-    PlaceableObject placeableObj = LevelGrid.Instance.GetObjectAt(gridPos);
-    
-    if (placeableObj != null)
+    void TryUseTool()
     {
-        Debug.Log($"[CLIENT] Found object at grid position, sending to server");
-        NetworkObject targetObj = placeableObj.GetComponent<NetworkObject>();
-        if (targetObj != null)
+        if (heldTool == null || !heldTool.CanBeUsed()) return;
+        if (LevelGrid.Instance == null) return;
+
+        Vector2Int gridPos = GetTargetGridPosition();
+        Debug.Log($"[CLIENT] Tool targeting grid position: {gridPos}");
+        
+        // Check all layers for a placed object to target
+        List<PlaceableObject> objectsAtPos = LevelGrid.Instance.GetAllObjectsAt(gridPos);
+        
+        PlaceableObject targetObject = null;
+        foreach (PlaceableObject obj in objectsAtPos)
         {
-            Debug.Log($"[CLIENT] Sending UseToolServerRpc with IDs: tool={heldObjectNetId}, target={targetObj.NetworkObjectId}");
-            UseToolServerRpc(heldObjectNetId, targetObj.NetworkObjectId);
+            if (obj.IsPlaced)
+            {
+                targetObject = obj;
+                Debug.Log($"[CLIENT] Found {obj.Layer} object at grid position");
+                break;
+            }
+        }
+        
+        if (targetObject != null)
+        {
+            NetworkObject targetNetObj = targetObject.GetComponent<NetworkObject>();
+            if (targetNetObj != null)
+            {
+                Debug.Log($"[CLIENT] Sending UseToolServerRpc with IDs: tool={heldObjectNetId}, target={targetNetObj.NetworkObjectId}");
+                UseToolServerRpc(heldObjectNetId, targetNetObj.NetworkObjectId);
+            }
+            else
+            {
+                Debug.LogError($"[CLIENT] Object has no NetworkObject component!");
+            }
         }
         else
         {
-            Debug.LogError($"[CLIENT] Object has no NetworkObject component!");
+            Debug.Log($"[CLIENT] No placed object found at grid position {gridPos}");
         }
     }
-    else
-    {
-        Debug.Log($"[CLIENT] No object found at grid position {gridPos}");
-    }
-}
 
     [ServerRpc]
     void UseToolServerRpc(ulong toolId, ulong targetId)
@@ -290,9 +316,13 @@ void TryUseTool()
     {
         if (LevelGrid.Instance == null) return;
 
+        PlaceableObject placeableObj = heldObject as PlaceableObject;
+        if (placeableObj == null) return;
+
         Vector2Int gridPos = GetTargetGridPosition();
 
-        if (LevelGrid.Instance.CanPlaceAt(gridPos))
+        // Use the object's CanPlaceAtPosition which handles layer checking internally
+        if (placeableObj.CanPlaceAtPosition(gridPos))
         {
             PlaceObjectServerRpc(heldObjectNetId, gridPos);
         }

@@ -7,6 +7,9 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     [SerializeField] private float holdForce = 300f;
     [SerializeField] private float holdDrag = 10f;
 
+    [Header("Grid Settings")]
+    [SerializeField] private GridLayer objectLayer = GridLayer.Foundation; // Which layer this object belongs to
+
     [Header("Materials")]
     [SerializeField] private Material validMaterial;
     [SerializeField] private Material invalidMaterial;
@@ -19,6 +22,7 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     private NetworkVariable<bool> isLocked = new NetworkVariable<bool>(false);
 
     public Vector2Int GridPosition { get; private set; }
+    public GridLayer Layer => objectLayer; // Public getter for layer
     public bool IsLocked => isLocked.Value;
     public bool IsPlaced => isPlaced.Value;
 
@@ -116,7 +120,6 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         if (rend == null) return;
         
         // Determine which material to show based on network state
-        // Priority: Locked > Placed > Original
         if (isLocked.Value && lockedMaterial != null)
         {
             rend.material = lockedMaterial;
@@ -167,16 +170,9 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
 
         if (GridPosition != Vector2Int.zero)
         {
-            LevelGrid.Instance?.Unregister(GridPosition);
-            UnregisterOnClientsClientRpc(GridPosition);
+            LevelGrid.Instance?.Unregister(GridPosition, objectLayer);
+            UnregisterOnClientsClientRpc(GridPosition, objectLayer);
         }
-    }
-
-    [ClientRpc]
-    void UnregisterOnClientsClientRpc(Vector2Int gridPos)
-    {
-        if (IsServer) return; // Server already unregistered
-        LevelGrid.Instance?.Unregister(gridPos);
     }
 
     public void OnDropped()
@@ -220,19 +216,27 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
             rb.excludeLayers = 0;
         }
 
-        LevelGrid.Instance?.Register(gridPos, this);
+        // Register on the appropriate layer
+        LevelGrid.Instance?.Register(gridPos, objectLayer, this);
         
         // Tell all clients to register this object
-        RegisterOnClientsClientRpc(gridPos);
+        RegisterOnClientsClientRpc(gridPos, objectLayer);
     }
 
     [ClientRpc]
-    void RegisterOnClientsClientRpc(Vector2Int gridPos)
+    void RegisterOnClientsClientRpc(Vector2Int gridPos, GridLayer layer)
     {
         if (IsServer) return; // Server already registered
         
         GridPosition = gridPos;
-        LevelGrid.Instance?.Register(gridPos, this);
+        LevelGrid.Instance?.Register(gridPos, layer, this);
+    }
+
+    [ClientRpc]
+    void UnregisterOnClientsClientRpc(Vector2Int gridPos, GridLayer layer)
+    {
+        if (IsServer) return; // Server already unregistered
+        LevelGrid.Instance?.Unregister(gridPos, layer);
     }
 
     #endregion
@@ -263,6 +267,31 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         if (!IsServer) return;
         isLocked.Value = false;
         // Visual update happens automatically via OnLockedStateChanged
+    }
+
+    #endregion
+
+    #region Placement Validation
+
+    public bool CanPlaceAtPosition(Vector2Int gridPos)
+    {
+        if (LevelGrid.Instance == null) return false;
+
+        // Check if this layer is available at the position
+        if (!LevelGrid.Instance.CanPlaceAt(gridPos, objectLayer))
+            return false;
+
+        // Walls and Objects require a foundation
+        if (objectLayer == GridLayer.Wall || objectLayer == GridLayer.Object)
+        {
+            if (!LevelGrid.Instance.HasFoundation(gridPos))
+            {
+                Debug.Log($"Cannot place {objectLayer} without foundation at {gridPos}");
+                return false;
+            }
+        }
+
+        return true;
     }
 
     #endregion

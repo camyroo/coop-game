@@ -74,36 +74,80 @@ public class LevelGrid : NetworkBehaviour
 
     #region Placement Management
 
-    public bool CanPlaceAt(Vector2Int gridPos)
+    public bool CanPlaceAt(Vector2Int gridPos, GridLayer layer)
     {
-        return IsInBounds(gridPos) && !occupiedCells.ContainsKey(gridPos);
+        if (!IsInBounds(gridPos)) return false;
+        
+        // Check if this specific layer is occupied
+        if (gridCells.TryGetValue(gridPos, out Dictionary<GridLayer, PlaceableObject> cellLayers))
+        {
+            return !cellLayers.ContainsKey(layer);
+        }
+        
+        return true; // Cell doesn't exist yet, so it's free
     }
 
-    public void Register(Vector2Int gridPos, PlaceableObject obj)
+    public void Register(Vector2Int gridPos, GridLayer layer, PlaceableObject obj)
     {
         // Server validates placement, clients just track it
-        if (IsServer && !CanPlaceAt(gridPos))
+        if (IsServer && !CanPlaceAt(gridPos, layer))
         {
-            Debug.LogWarning($"Cannot register at {gridPos}, cell already occupied");
+            Debug.LogWarning($"Cannot register at {gridPos} on layer {layer}, already occupied");
             return;
         }
 
-        // Both server and clients track the registration
-        occupiedCells[gridPos] = obj;
-        Debug.Log($"[{(IsServer ? "SERVER" : "CLIENT")}] Registered object at {gridPos}");
+        // Create cell dictionary if it doesn't exist
+        if (!gridCells.ContainsKey(gridPos))
+        {
+            gridCells[gridPos] = new Dictionary<GridLayer, PlaceableObject>();
+        }
+
+        // Register object on specific layer
+        gridCells[gridPos][layer] = obj;
+        Debug.Log($"[{(IsServer ? "SERVER" : "CLIENT")}] Registered {layer} at {gridPos}");
     }
 
-    public void Unregister(Vector2Int gridPos)
+    public void Unregister(Vector2Int gridPos, GridLayer layer)
     {
-        // Both server and clients can unregister
-        occupiedCells.Remove(gridPos);
-        Debug.Log($"[{(IsServer ? "SERVER" : "CLIENT")}] Unregistered object at {gridPos}");
+        if (gridCells.TryGetValue(gridPos, out Dictionary<GridLayer, PlaceableObject> cellLayers))
+        {
+            cellLayers.Remove(layer);
+            
+            // Clean up empty cell dictionaries
+            if (cellLayers.Count == 0)
+            {
+                gridCells.Remove(gridPos);
+            }
+            
+            Debug.Log($"[{(IsServer ? "SERVER" : "CLIENT")}] Unregistered {layer} at {gridPos}");
+        }
     }
 
-    public PlaceableObject GetObjectAt(Vector2Int gridPos)
+    public PlaceableObject GetObjectAt(Vector2Int gridPos, GridLayer layer)
     {
-        occupiedCells.TryGetValue(gridPos, out PlaceableObject obj);
-        return obj;
+        if (gridCells.TryGetValue(gridPos, out Dictionary<GridLayer, PlaceableObject> cellLayers))
+        {
+            cellLayers.TryGetValue(layer, out PlaceableObject obj);
+            return obj;
+        }
+        return null;
+    }
+
+    public bool HasFoundation(Vector2Int gridPos)
+    {
+        return GetObjectAt(gridPos, GridLayer.Foundation) != null;
+    }
+
+    public List<PlaceableObject> GetAllObjectsAt(Vector2Int gridPos)
+    {
+        List<PlaceableObject> objects = new List<PlaceableObject>();
+        
+        if (gridCells.TryGetValue(gridPos, out Dictionary<GridLayer, PlaceableObject> cellLayers))
+        {
+            objects.AddRange(cellLayers.Values);
+        }
+        
+        return objects;
     }
 
     #endregion
@@ -204,7 +248,8 @@ public class LevelGrid : NetworkBehaviour
 
                 Gizmos.DrawWireCube(worldPos, new Vector3(cellSize * 0.9f, 0.1f, cellSize * 0.9f));
 
-                if (Application.isPlaying && occupiedCells.ContainsKey(gridPos))
+                // Check if any layer is occupied at this position
+                if (Application.isPlaying && gridCells.ContainsKey(gridPos))
                 {
                     Gizmos.color = Color.red;
                     Gizmos.DrawCube(worldPos, new Vector3(cellSize * 0.8f, 0.2f, cellSize * 0.8f));
