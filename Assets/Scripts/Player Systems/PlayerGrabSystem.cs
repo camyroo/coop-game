@@ -195,6 +195,7 @@ public class PlayerGrabSystem : NetworkBehaviour
 
         if (nearbyObjects.Length == 0) return null;
 
+        // Group objects by distance
         Collider closest = nearbyObjects[0];
         float closestDist = Vector3.Distance(transform.position, closest.transform.position);
 
@@ -205,6 +206,57 @@ public class PlayerGrabSystem : NetworkBehaviour
             {
                 closest = col;
                 closestDist = dist;
+            }
+        }
+
+        // Check if there are multiple objects at the same position
+        // Prioritize: Object > Wall > Foundation
+        List<IGrabbable> samePositionObjects = new List<IGrabbable>();
+        
+        foreach (Collider col in nearbyObjects)
+        {
+            float dist = Vector3.Distance(transform.position, col.transform.position);
+            if (Mathf.Abs(dist - closestDist) < 0.5f) // Same position tolerance
+            {
+                IGrabbable grabbable = col.GetComponent<IGrabbable>();
+                if (grabbable != null)
+                {
+                    samePositionObjects.Add(grabbable);
+                }
+            }
+        }
+
+        // If multiple objects at same position, prioritize by layer
+        if (samePositionObjects.Count > 1)
+        {
+            // Try Object layer first
+            foreach (IGrabbable grab in samePositionObjects)
+            {
+                PlaceableObject obj = grab as PlaceableObject;
+                if (obj != null && obj.Layer == GridLayer.Object && obj.CanBeGrabbed())
+                {
+                    return grab;
+                }
+            }
+            
+            // Then Wall layer
+            foreach (IGrabbable grab in samePositionObjects)
+            {
+                PlaceableObject obj = grab as PlaceableObject;
+                if (obj != null && obj.Layer == GridLayer.Wall && obj.CanBeGrabbed())
+                {
+                    return grab;
+                }
+            }
+            
+            // Finally Foundation layer
+            foreach (IGrabbable grab in samePositionObjects)
+            {
+                PlaceableObject obj = grab as PlaceableObject;
+                if (obj != null && obj.Layer == GridLayer.Foundation && obj.CanBeGrabbed())
+                {
+                    return grab;
+                }
             }
         }
 
@@ -256,14 +308,45 @@ public class PlayerGrabSystem : NetworkBehaviour
         // Check all layers for a placed object to target
         List<PlaceableObject> objectsAtPos = LevelGrid.Instance.GetAllObjectsAt(gridPos);
         
+        // Prioritize layers: Object > Wall > Foundation
         PlaceableObject targetObject = null;
+        
+        // First try Object layer
         foreach (PlaceableObject obj in objectsAtPos)
         {
-            if (obj.IsPlaced)
+            if (obj.IsPlaced && obj.Layer == GridLayer.Object)
             {
                 targetObject = obj;
-                Debug.Log($"[CLIENT] Found {obj.Layer} object at grid position");
+                Debug.Log($"[CLIENT] Found {obj.Layer} object at grid position (priority)");
                 break;
+            }
+        }
+        
+        // Then try Wall layer
+        if (targetObject == null)
+        {
+            foreach (PlaceableObject obj in objectsAtPos)
+            {
+                if (obj.IsPlaced && obj.Layer == GridLayer.Wall)
+                {
+                    targetObject = obj;
+                    Debug.Log($"[CLIENT] Found {obj.Layer} object at grid position (priority)");
+                    break;
+                }
+            }
+        }
+        
+        // Finally try Foundation layer
+        if (targetObject == null)
+        {
+            foreach (PlaceableObject obj in objectsAtPos)
+            {
+                if (obj.IsPlaced && obj.Layer == GridLayer.Foundation)
+                {
+                    targetObject = obj;
+                    Debug.Log($"[CLIENT] Found {obj.Layer} object at grid position");
+                    break;
+                }
             }
         }
         
@@ -285,7 +368,6 @@ public class PlayerGrabSystem : NetworkBehaviour
             Debug.Log($"[CLIENT] No placed object found at grid position {gridPos}");
         }
     }
-
     [ServerRpc]
     void UseToolServerRpc(ulong toolId, ulong targetId)
     {

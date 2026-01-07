@@ -279,14 +279,45 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
 
         // Check if this layer is available at the position
         if (!LevelGrid.Instance.CanPlaceAt(gridPos, objectLayer))
+        {
+            // Debug.Log($"Cannot place {objectLayer}, layer already occupied at {gridPos}");
             return false;
+        }
 
-        // Walls and Objects require a foundation
+        // Walls and Objects require a LOCKED foundation
         if (objectLayer == GridLayer.Wall || objectLayer == GridLayer.Object)
         {
-            if (!LevelGrid.Instance.HasFoundation(gridPos))
+            PlaceableObject foundation = LevelGrid.Instance.GetObjectAt(gridPos, GridLayer.Foundation);
+            
+            if (foundation == null)
             {
-                Debug.Log($"Cannot place {objectLayer} without foundation at {gridPos}");
+                // Debug.Log($"Cannot place {objectLayer} without foundation at {gridPos}");
+                return false;
+            }
+            
+            if (!foundation.IsLocked)
+            {
+                // Debug.Log($"Cannot place {objectLayer}, foundation must be locked/refined first at {gridPos}");
+                return false;
+            }
+        }
+
+        // Walls and Objects are mutually exclusive
+        if (objectLayer == GridLayer.Wall)
+        {
+            // Can't place wall if there's already an object
+            if (LevelGrid.Instance.GetObjectAt(gridPos, GridLayer.Object) != null)
+            {
+                // Debug.Log($"Cannot place wall, object already exists at {gridPos}");
+                return false;
+            }
+        }
+        else if (objectLayer == GridLayer.Object)
+        {
+            // Can't place object if there's already a wall
+            if (LevelGrid.Instance.GetObjectAt(gridPos, GridLayer.Wall) != null)
+            {
+                // Debug.Log($"Cannot place object, wall already exists at {gridPos}");
                 return false;
             }
         }
