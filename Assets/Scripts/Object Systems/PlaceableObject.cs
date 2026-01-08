@@ -8,23 +8,34 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     [SerializeField] private float holdDrag = 10f;
 
     [Header("Grid Settings")]
-    [SerializeField] private GridLayer objectLayer = GridLayer.Foundation; // Which layer this object belongs to
+    [SerializeField] private GridLayer objectLayer = GridLayer.Foundation;
 
+    [Header("Processing Settings")]
+    [SerializeField] private string requiredToolType = "refining"; // Which tool type can process this object
+    
     [Header("Materials")]
     [SerializeField] private Material validMaterial;
     [SerializeField] private Material invalidMaterial;
     [SerializeField] private Material placedMaterial;
-    [SerializeField] private Material lockedMaterial;
+    
+    [Header("State Materials")]
+    [SerializeField] private Material rawMaterial;      // Visual for RawMaterial state
+    [SerializeField] private Material refinedMaterial;  // Visual for Refined state
+    [SerializeField] private Material damagedMaterial;  // Visual for Damaged state
 
     // Network state
     private NetworkVariable<bool> isBeingHeld = new NetworkVariable<bool>(false);
     private NetworkVariable<bool> isPlaced = new NetworkVariable<bool>(false);
-    private NetworkVariable<bool> isLocked = new NetworkVariable<bool>(false);
+    private NetworkVariable<ObjectState> objectState = new NetworkVariable<ObjectState>(ObjectState.RawMaterial);
 
     public Vector2Int GridPosition { get; private set; }
-    public GridLayer Layer => objectLayer; // Public getter for layer
-    public bool IsLocked => isLocked.Value;
+    public GridLayer Layer => objectLayer;
+    public ObjectState State => objectState.Value;
     public bool IsPlaced => isPlaced.Value;
+    public string RequiredToolType => requiredToolType;
+    
+    // Backwards compatibility - "locked" now means "refined"
+    public bool IsLocked => objectState.Value == ObjectState.Refined;
 
     private Rigidbody rb;
     private Renderer rend;
@@ -45,7 +56,7 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         // Subscribe to state changes
         isBeingHeld.OnValueChanged += OnStateChanged;
         isPlaced.OnValueChanged += OnStateChanged;
-        isLocked.OnValueChanged += OnLockedStateChanged;
+        objectState.OnValueChanged += OnObjectStateChanged;
         
         // Initial setup for clients
         if (!IsServer && rb != null)
@@ -63,27 +74,23 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         
         isBeingHeld.OnValueChanged -= OnStateChanged;
         isPlaced.OnValueChanged -= OnStateChanged;
-        isLocked.OnValueChanged -= OnLockedStateChanged;
+        objectState.OnValueChanged -= OnObjectStateChanged;
     }
 
     void OnStateChanged(bool oldValue, bool newValue)
     {
-        // Update client physics when state changes
         if (!IsServer)
         {
             UpdateClientPhysicsState();
         }
-        
-        // Update visuals for all clients
         UpdateVisuals();
     }
 
-    void OnLockedStateChanged(bool oldValue, bool newValue)
+    void OnObjectStateChanged(ObjectState oldValue, ObjectState newValue)
     {
-        // Update visuals when lock state changes
+        Debug.Log($"[{(IsServer ? "SERVER" : "CLIENT")}] Object state changed: {oldValue} → {newValue}");
         UpdateVisuals();
         
-        // Update client physics
         if (!IsServer)
         {
             UpdateClientPhysicsState();
@@ -96,19 +103,16 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         {
             if (isBeingHeld.Value)
             {
-                // Being held: kinematic, no collisions (prevents pushing player)
                 rb.isKinematic = true;
                 rb.detectCollisions = false;
             }
             else if (isPlaced.Value)
             {
-                // Placed: kinematic, but KEEP collisions (so player can interact)
                 rb.isKinematic = true;
                 rb.detectCollisions = true;
             }
             else
             {
-                // Free/dropped: normal physics with collisions
                 rb.isKinematic = false;
                 rb.detectCollisions = true;
             }
@@ -119,14 +123,29 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     {
         if (rend == null) return;
         
-        // Determine which material to show based on network state
-        if (isLocked.Value && lockedMaterial != null)
+        // Priority: Being held > State-specific materials
+        if (isBeingHeld.Value)
         {
-            rend.material = lockedMaterial;
+            // Keep original material when being held
+            rend.material = originalMaterial;
         }
-        else if (isPlaced.Value && placedMaterial != null)
+        else if (isPlaced.Value)
         {
-            rend.material = placedMaterial;
+            // Show state-specific material when placed
+            switch (objectState.Value)
+            {
+                case ObjectState.RawMaterial:
+                    rend.material = rawMaterial != null ? rawMaterial : placedMaterial;
+                    break;
+                    
+                case ObjectState.Refined:
+                    rend.material = refinedMaterial != null ? refinedMaterial : placedMaterial;
+                    break;
+                    
+                case ObjectState.Damaged:
+                    rend.material = damagedMaterial != null ? damagedMaterial : placedMaterial;
+                    break;
+            }
         }
         else
         {
@@ -136,7 +155,6 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
 
     void FixedUpdate()
     {
-        // Only simulate physics on server
         if (!IsServer) return;
         
         if (isBeingHeld.Value && holdPoint != null && rb != null)
@@ -150,11 +168,15 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
 
     #region IGrabbable
 
-    public bool CanBeGrabbed() => !isBeingHeld.Value && !isLocked.Value;
+    public bool CanBeGrabbed()
+    {
+        // Can't grab if being held or if refined
+        return !isBeingHeld.Value && objectState.Value != ObjectState.Refined;
+    }
 
     public void OnGrabbed(Transform newHoldPoint)
     {
-        if (!IsServer || isLocked.Value) return;
+        if (!IsServer || objectState.Value == ObjectState.Refined) return;
 
         isBeingHeld.Value = true;
         isPlaced.Value = false;
@@ -190,8 +212,6 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
             rb.excludeLayers = 0;
             rb.freezeRotation = false;
         }
-
-        // Visual update happens automatically via OnStateChanged
     }
 
     public void OnPlaced(Vector2Int gridPos)
@@ -202,6 +222,9 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         isPlaced.Value = true;
         holdPoint = null;
         GridPosition = gridPos;
+
+        // Reset to RawMaterial state when placed
+        objectState.Value = ObjectState.RawMaterial;
 
         // Snap to grid
         transform.position = LevelGrid.Instance.GridToWorld(gridPos, transform.position.y);
@@ -216,17 +239,14 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
             rb.excludeLayers = 0;
         }
 
-        // Register on the appropriate layer
         LevelGrid.Instance?.Register(gridPos, objectLayer, this);
-        
-        // Tell all clients to register this object
         RegisterOnClientsClientRpc(gridPos, objectLayer);
     }
 
     [ClientRpc]
     void RegisterOnClientsClientRpc(Vector2Int gridPos, GridLayer layer)
     {
-        if (IsServer) return; // Server already registered
+        if (IsServer) return;
         
         GridPosition = gridPos;
         LevelGrid.Instance?.Register(gridPos, layer, this);
@@ -235,7 +255,7 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     [ClientRpc]
     void UnregisterOnClientsClientRpc(Vector2Int gridPos, GridLayer layer)
     {
-        if (IsServer) return; // Server already unregistered
+        if (IsServer) return;
         LevelGrid.Instance?.Unregister(gridPos, layer);
     }
 
@@ -253,21 +273,59 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
 
     #endregion
 
-    #region Tool Interactions
+    #region Tool Interactions & State Management
 
-    public void LockInPlace()
+    /// <summary>
+    /// Refine object: RawMaterial → Refined
+    /// </summary>
+    public void Refine()
     {
         if (!IsServer) return;
-        isLocked.Value = true;
-        // Visual update happens automatically via OnLockedStateChanged
+        if (objectState.Value != ObjectState.RawMaterial) return;
+        
+        objectState.Value = ObjectState.Refined;
+        Debug.Log($"[SERVER] Refined object at {GridPosition}");
     }
 
-    public void Unlock()
+    /// <summary>
+    /// Damage object: Refined → Damaged
+    /// </summary>
+    public void Damage()
     {
         if (!IsServer) return;
-        isLocked.Value = false;
-        // Visual update happens automatically via OnLockedStateChanged
+        if (objectState.Value != ObjectState.Refined) return;
+        
+        objectState.Value = ObjectState.Damaged;
+        Debug.Log($"[SERVER] Damaged object at {GridPosition}");
     }
+
+    /// <summary>
+    /// Repair object: Damaged → Refined
+    /// </summary>
+    public void Repair()
+    {
+        if (!IsServer) return;
+        if (objectState.Value != ObjectState.Damaged) return;
+        
+        objectState.Value = ObjectState.Refined;
+        Debug.Log($"[SERVER] Repaired object at {GridPosition}");
+    }
+
+    /// <summary>
+    /// Un-refine object (for testing): Refined → RawMaterial
+    /// </summary>
+    public void Unrefine()
+    {
+        if (!IsServer) return;
+        if (objectState.Value != ObjectState.Refined) return;
+        
+        objectState.Value = ObjectState.RawMaterial;
+        Debug.Log($"[SERVER] Un-refined object at {GridPosition}");
+    }
+
+    // Backwards compatibility methods
+    public void LockInPlace() => Refine();
+    public void Unlock() => Unrefine();
 
     #endregion
 
@@ -277,27 +335,24 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
     {
         if (LevelGrid.Instance == null) return false;
 
-        // Check if this layer is available at the position
         if (!LevelGrid.Instance.CanPlaceAt(gridPos, objectLayer))
         {
-            // Debug.Log($"Cannot place {objectLayer}, layer already occupied at {gridPos}");
             return false;
         }
 
-        // Walls and Objects require a LOCKED foundation
+        // Walls and Objects require a REFINED foundation (not just placed)
         if (objectLayer == GridLayer.Wall || objectLayer == GridLayer.Object)
         {
             PlaceableObject foundation = LevelGrid.Instance.GetObjectAt(gridPos, GridLayer.Foundation);
             
             if (foundation == null)
             {
-                // Debug.Log($"Cannot place {objectLayer} without foundation at {gridPos}");
                 return false;
             }
             
-            if (!foundation.IsLocked)
+            // Foundation must be refined
+            if (foundation.State != ObjectState.Refined)
             {
-                // Debug.Log($"Cannot place {objectLayer}, foundation must be locked/refined first at {gridPos}");
                 return false;
             }
         }
@@ -305,19 +360,15 @@ public class PlaceableObject : NetworkBehaviour, IGrabbable
         // Walls and Objects are mutually exclusive
         if (objectLayer == GridLayer.Wall)
         {
-            // Can't place wall if there's already an object
             if (LevelGrid.Instance.GetObjectAt(gridPos, GridLayer.Object) != null)
             {
-                // Debug.Log($"Cannot place wall, object already exists at {gridPos}");
                 return false;
             }
         }
         else if (objectLayer == GridLayer.Object)
         {
-            // Can't place object if there's already a wall
             if (LevelGrid.Instance.GetObjectAt(gridPos, GridLayer.Wall) != null)
             {
-                // Debug.Log($"Cannot place object, wall already exists at {gridPos}");
                 return false;
             }
         }

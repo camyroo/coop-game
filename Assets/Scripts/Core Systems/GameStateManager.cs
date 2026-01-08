@@ -1,7 +1,6 @@
 using UnityEngine;
 using Unity.Netcode;
 using System;
-using System.Collections.Generic;
 
 public enum GameState
 {
@@ -20,6 +19,9 @@ public class GameStateManager : NetworkBehaviour
     public NetworkVariable<GameState> CurrentState = new NetworkVariable<GameState>(GameState.Menu);
     public NetworkVariable<float> GameTime = new NetworkVariable<float>(0f);
     public NetworkVariable<int> RoundNumber = new NetworkVariable<int>(1);
+    
+    [Header("Phase System")]
+    public NetworkVariable<GamePhase> CurrentPhase = new NetworkVariable<GamePhase>(GamePhase.Foundation);
 
     [Header("Configuration")]
     [SerializeField] private GameConfig config;
@@ -30,6 +32,7 @@ public class GameStateManager : NetworkBehaviour
     // Events
     public event Action<GameState, GameState> OnStateChanged;
     public event Action<int> OnRoundChanged;
+    public event Action<GamePhase> OnPhaseChanged;
     public event Action<float> OnTimeUpdate;
     public event Action OnGameStart;
     public event Action OnGameEnd;
@@ -53,6 +56,7 @@ public class GameStateManager : NetworkBehaviour
         
         CurrentState.OnValueChanged += OnStateValueChanged;
         RoundNumber.OnValueChanged += OnRoundValueChanged;
+        CurrentPhase.OnValueChanged += OnPhaseValueChanged;
     }
     
     public override void OnNetworkDespawn()
@@ -61,6 +65,7 @@ public class GameStateManager : NetworkBehaviour
         
         CurrentState.OnValueChanged -= OnStateValueChanged;
         RoundNumber.OnValueChanged -= OnRoundValueChanged;
+        CurrentPhase.OnValueChanged -= OnPhaseValueChanged;
     }
     
     void Update()
@@ -110,6 +115,32 @@ public class GameStateManager : NetworkBehaviour
     
     #endregion
     
+    #region Phase Management
+    
+    public void ChangePhase(GamePhase newPhase)
+    {
+        if (!IsServer) return;
+        
+        CurrentPhase.Value = newPhase;
+        Debug.Log($"[GameState] Phase changed to: {newPhase}");
+    }
+    
+    void OnPhaseValueChanged(GamePhase oldPhase, GamePhase newPhase)
+    {
+        OnPhaseChanged?.Invoke(newPhase);
+        Debug.Log($"[GameState] Phase transition: {oldPhase} → {newPhase}");
+    }
+    
+    public GamePhase GetCurrentPhase() => CurrentPhase.Value;
+    
+    [ServerRpc(RequireOwnership = false)]
+    public void RequestPhaseChangeServerRpc(GamePhase newPhase)
+    {
+        ChangePhase(newPhase);
+    }
+    
+    #endregion
+    
     #region Game Flow
     
     void StartGame()
@@ -118,6 +149,7 @@ public class GameStateManager : NetworkBehaviour
         
         GameTime.Value = 0f;
         localTimer = 0f;
+        CurrentPhase.Value = GamePhase.Foundation; // Start at foundation phase
         
         OnGameStart?.Invoke();
         Debug.Log("Game Started!");
@@ -137,6 +169,7 @@ public class GameStateManager : NetworkBehaviour
         
         GameTime.Value = 0f;
         RoundNumber.Value = 1;
+        CurrentPhase.Value = GamePhase.Foundation;
         localTimer = 0f;
     }
     

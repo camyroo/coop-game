@@ -1,21 +1,30 @@
 using UnityEngine;
 using Unity.Netcode;
+using System.Collections.Generic;
+using System.Linq;
 
-public class RefiningTool : NetworkBehaviour, IGrabbable, ITool
+/// <summary>
+/// Tool that processes raw materials according to cell blueprints
+/// Also handles repairing damaged objects (tool-only, no materials needed for now)
+/// </summary>
+public class ProcessingTool : NetworkBehaviour, IGrabbable, ITool
 {
     [Header("Physics")]
     [SerializeField] private float holdForce = 300f;
     [SerializeField] private float holdDrag = 10f;
 
     [Header("Tool Settings")]
-    [SerializeField] private string toolName = "Refining Tool";
+    [SerializeField] private string toolName = "Processing Tool";
     [SerializeField] private float useRange = 3f;
+    [SerializeField] private string toolType = "concrete";
 
     private NetworkVariable<bool> isBeingHeld = new NetworkVariable<bool>(false);
     private Rigidbody rb;
     private Renderer rend;
     private Material originalMaterial;
     private Transform holdPoint;
+
+    public string ToolType => toolType;
 
     void Awake()
     {
@@ -28,10 +37,8 @@ public class RefiningTool : NetworkBehaviour, IGrabbable, ITool
     {
         base.OnNetworkSpawn();
         
-        // Subscribe to state changes
         isBeingHeld.OnValueChanged += OnHeldStateChanged;
         
-        // Initial setup for clients
         if (!IsServer && rb != null)
         {
             UpdateClientPhysicsState();
@@ -41,7 +48,6 @@ public class RefiningTool : NetworkBehaviour, IGrabbable, ITool
     public override void OnNetworkDespawn()
     {
         base.OnNetworkDespawn();
-        
         isBeingHeld.OnValueChanged -= OnHeldStateChanged;
     }
 
@@ -72,7 +78,6 @@ public class RefiningTool : NetworkBehaviour, IGrabbable, ITool
 
     void FixedUpdate()
     {
-        // Only simulate physics on server
         if (!IsServer) return;
         
         if (isBeingHeld.Value && holdPoint != null && rb != null)
@@ -124,7 +129,6 @@ public class RefiningTool : NetworkBehaviour, IGrabbable, ITool
 
     public void OnPlaced(Vector2Int gridPosition)
     {
-        // Tools can't be placed on grid - just drop them instead
         OnDropped();
     }
 
@@ -145,33 +149,104 @@ public class RefiningTool : NetworkBehaviour, IGrabbable, ITool
     public void OnUse(GameObject target)
     {
         if (!IsServer) return;
+        if (LevelGrid.Instance == null) return;
 
-        Debug.Log($"[SERVER] Tool OnUse called on target: {target.name}");
+        Vector2Int gridPos = LevelGrid.Instance.WorldToGrid(target.transform.position);
+        Debug.Log($"[ProcessingTool] Using {toolName} at {gridPos}");
 
-        PlaceableObject placeableObj = target.GetComponent<PlaceableObject>();
-        if (placeableObj != null)
+        // Try to repair damaged object first
+        if (TryRepairDamagedObject(gridPos))
         {
-            Debug.Log($"[SERVER] PlaceableObject found. IsLocked: {placeableObj.IsLocked}, IsPlaced: {placeableObj.IsPlaced}");
-            
-            // Toggle lock state
-            if (placeableObj.IsLocked)
+            return; // Repair successful
+        }
+
+        // Otherwise, process raw materials for blueprint
+        ProcessBlueprintMaterials(gridPos);
+    }
+
+    bool TryRepairDamagedObject(Vector2Int gridPos)
+    {
+        // Check all layers for damaged objects
+        List<PlaceableObject> allObjects = LevelGrid.Instance.GetAllObjectsAt(gridPos);
+        
+        foreach (PlaceableObject obj in allObjects)
+        {
+            if (obj.State == ObjectState.Damaged)
             {
-                placeableObj.Unlock();
-                Debug.Log($"[SERVER] Unlocked {target.name}");
+                // TODO: Check if this tool matches the object's original recipe
+                // For now, just repair any damaged object
+                
+                Debug.Log($"[ProcessingTool] Repairing damaged object at {gridPos}");
+                obj.Repair();
+                return true;
             }
-            else if (placeableObj.IsPlaced)
+        }
+        
+        return false;
+    }
+
+    void ProcessBlueprintMaterials(Vector2Int gridPos)
+    {
+        // Get active blueprint for current phase
+        CellBlueprint blueprint = LevelGrid.Instance.GetActiveBlueprint(gridPos);
+        
+        if (blueprint == null)
+        {
+            Debug.Log($"[ProcessingTool] No active blueprint at {gridPos}");
+            return;
+        }
+
+        if (blueprint.IsComplete)
+        {
+            Debug.Log($"[ProcessingTool] Blueprint already complete at {gridPos}");
+            return;
+        }
+
+        // Check if this tool is accepted by the blueprint
+        if (!blueprint.AcceptsTool(toolType))
+        {
+            Debug.Log($"[ProcessingTool] Blueprint doesn't accept tool type '{toolType}'");
+            return;
+        }
+
+        // Get the material type this tool processes
+        MaterialType? materialType = blueprint.Recipe.GetMaterialForTool(toolType);
+        if (materialType == null)
+        {
+            Debug.LogError($"[ProcessingTool] Tool '{toolType}' has no matching material in recipe");
+            return;
+        }
+
+        // Find raw materials at this cell that match what we need
+        List<RawMaterial> rawMaterials = LevelGrid.Instance.GetRawMaterials(gridPos, blueprint.Recipe.TargetLayer);
+        RawMaterial targetMaterial = rawMaterials.FirstOrDefault(m => m.MaterialType == materialType.Value);
+
+        if (targetMaterial == null)
+        {
+            Debug.Log($"[ProcessingTool] No {materialType.Value} raw material at {gridPos} on {blueprint.Recipe.TargetLayer} layer");
+            return;
+        }
+
+        // Process the material through the blueprint
+        bool processed = blueprint.ProcessMaterial(toolType, materialType.Value);
+
+        if (processed)
+        {
+            // Unregister from grid BEFORE destroying
+            LevelGrid.Instance.UnregisterRawMaterial(gridPos, blueprint.Recipe.TargetLayer, targetMaterial);
+            
+            // Destroy the raw material object
+            NetworkObject netObj = targetMaterial.GetComponent<NetworkObject>();
+            if (netObj != null)
             {
-                placeableObj.LockInPlace();
-                Debug.Log($"[SERVER] Locked {target.name}");
+                netObj.Despawn(true);
             }
             else
             {
-                Debug.Log($"[SERVER] Object is not placed, cannot lock/unlock");
+                Destroy(targetMaterial.gameObject);
             }
-        }
-        else
-        {
-            Debug.LogError($"[SERVER] No PlaceableObject component found on {target.name}");
+
+            Debug.Log($"[ProcessingTool] Processed and destroyed {materialType.Value} at {gridPos}");
         }
     }
 

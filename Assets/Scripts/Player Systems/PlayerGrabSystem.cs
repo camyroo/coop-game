@@ -91,7 +91,6 @@ public class PlayerGrabSystem : NetworkBehaviour
     {
         if (!IsOwner) return;
         
-        // Don't grab if already holding something
         if (heldObject != null)
         {
             return;
@@ -102,7 +101,6 @@ public class PlayerGrabSystem : NetworkBehaviour
 
     public bool CanInteractWithStation()
     {
-        // Don't allow station interaction if there's a grabbable object nearby
         IGrabbable nearbyGrabbable = FindNearestGrabbable();
         return nearbyGrabbable == null && heldObject == null;
     }
@@ -112,28 +110,54 @@ public class PlayerGrabSystem : NetworkBehaviour
         if (LevelGrid.Instance == null) return Vector2Int.zero;
         if (holdPoint == null) return Vector2Int.zero;
 
-        // Simply use where the hold point actually is
         return LevelGrid.Instance.WorldToGrid(holdPoint.position);
     }
 
     void UpdatePlacementPreview()
     {
-        PlaceableObject placeableObj = heldObject as PlaceableObject;
-        if (placeableObj == null || LevelGrid.Instance == null) return;
+        if (LevelGrid.Instance == null) return;
 
         Vector2Int gridPos = GetTargetGridPosition();
         
-        // Safety check: if grid position is way out of bounds, don't try to place
         if (!LevelGrid.Instance.IsInBounds(gridPos))
         {
-            placeableObj.SetPlacementPreview(false);
+            // Try PlaceableObject
+            PlaceableObject placeableObj = heldObject as PlaceableObject;
+            if (placeableObj != null)
+            {
+                placeableObj.SetPlacementPreview(false);
+            }
+            
+            // Try RawMaterial
+            RawMaterial rawMaterial = heldObject as RawMaterial;
+            if (rawMaterial != null)
+            {
+                rawMaterial.SetPlacementPreview(false);
+            }
+            
             LevelGrid.Instance.HideHighlight();
             return;
         }
         
-        // Use the new layer-aware validation
-        bool canPlace = placeableObj.CanPlaceAtPosition(gridPos);
-        placeableObj.SetPlacementPreview(canPlace);
+        // Check what type of object we're holding
+        PlaceableObject placeable = heldObject as PlaceableObject;
+        RawMaterial raw = heldObject as RawMaterial;
+        
+        bool canPlace = false;
+        
+        if (placeable != null)
+        {
+            // PlaceableObject placement rules
+            canPlace = placeable.CanPlaceAtPosition(gridPos);
+            placeable.SetPlacementPreview(canPlace);
+        }
+        else if (raw != null)
+        {
+            // RawMaterial placement rules - can always stack on same layer
+            canPlace = true; // Raw materials can stack
+            raw.SetPlacementPreview(canPlace);
+        }
+        
         LevelGrid.Instance.ShowHighlight(gridPos, canPlace);
     }
 
@@ -143,35 +167,26 @@ public class PlayerGrabSystem : NetworkBehaviour
 
         Vector2Int gridPos = GetTargetGridPosition();
         
-        // Tools can target any placed object on any layer
-        // Check all layers for placed objects
+        // Check for placed objects OR raw materials
         List<PlaceableObject> objectsAtPos = LevelGrid.Instance.GetAllObjectsAt(gridPos);
         
-        PlaceableObject targetObject = null;
-        foreach (PlaceableObject obj in objectsAtPos)
-        {
-            if (obj.IsPlaced)
-            {
-                targetObject = obj;
-                break; // Found a valid target
-            }
-        }
+        // Also check for raw materials
+        bool hasRawMaterials = LevelGrid.Instance.HasRawMaterials(gridPos, GridLayer.Foundation) ||
+                               LevelGrid.Instance.HasRawMaterials(gridPos, GridLayer.Wall) ||
+                               LevelGrid.Instance.HasRawMaterials(gridPos, GridLayer.Object);
         
-        if (targetObject != null)
+        if (objectsAtPos.Count > 0 || hasRawMaterials)
         {
-            // Valid target - show tool highlight
             LevelGrid.Instance.ShowToolHighlight(gridPos, true);
         }
         else
         {
-            // Empty cell - hide highlight
             LevelGrid.Instance.HideHighlight();
         }
     }
 
     void TryGrab()
     {
-        // Don't grab if already holding something
         if (heldObject != null)
         {
             return;
@@ -195,7 +210,6 @@ public class PlayerGrabSystem : NetworkBehaviour
 
         if (nearbyObjects.Length == 0) return null;
 
-        // Group objects by distance
         Collider closest = nearbyObjects[0];
         float closestDist = Vector3.Distance(transform.position, closest.transform.position);
 
@@ -209,14 +223,13 @@ public class PlayerGrabSystem : NetworkBehaviour
             }
         }
 
-        // Check if there are multiple objects at the same position
-        // Prioritize: Object > Wall > Foundation
+        // Prioritize by layer if multiple at same position
         List<IGrabbable> samePositionObjects = new List<IGrabbable>();
         
         foreach (Collider col in nearbyObjects)
         {
             float dist = Vector3.Distance(transform.position, col.transform.position);
-            if (Mathf.Abs(dist - closestDist) < 0.5f) // Same position tolerance
+            if (Mathf.Abs(dist - closestDist) < 0.5f)
             {
                 IGrabbable grabbable = col.GetComponent<IGrabbable>();
                 if (grabbable != null)
@@ -226,7 +239,6 @@ public class PlayerGrabSystem : NetworkBehaviour
             }
         }
 
-        // If multiple objects at same position, prioritize by layer
         if (samePositionObjects.Count > 1)
         {
             // Try Object layer first
@@ -305,24 +317,41 @@ public class PlayerGrabSystem : NetworkBehaviour
         Vector2Int gridPos = GetTargetGridPosition();
         Debug.Log($"[CLIENT] Tool targeting grid position: {gridPos}");
         
-        // Check all layers for a placed object to target
-        List<PlaceableObject> objectsAtPos = LevelGrid.Instance.GetAllObjectsAt(gridPos);
+        // Check for raw materials first (new priority for recipe system)
+        bool hasRawMaterials = LevelGrid.Instance.HasRawMaterials(gridPos, GridLayer.Foundation) ||
+                               LevelGrid.Instance.HasRawMaterials(gridPos, GridLayer.Wall) ||
+                               LevelGrid.Instance.HasRawMaterials(gridPos, GridLayer.Object);
         
-        // Prioritize layers: Object > Wall > Foundation
+        if (hasRawMaterials)
+        {
+            // Target the cell itself (for recipe processing)
+            Vector3 cellCenter = LevelGrid.Instance.GridToWorld(gridPos, 0);
+            GameObject dummyTarget = new GameObject("TempTarget");
+            dummyTarget.transform.position = cellCenter;
+            
+            NetworkObject tempNetObj = dummyTarget.AddComponent<NetworkObject>();
+            tempNetObj.Spawn();
+            
+            UseToolServerRpc(heldObjectNetId, tempNetObj.NetworkObjectId);
+            
+            // Clean up temp object after a frame
+            Destroy(dummyTarget, 0.1f);
+            return;
+        }
+        
+        // Check for placed objects (original behavior)
+        List<PlaceableObject> objectsAtPos = LevelGrid.Instance.GetAllObjectsAt(gridPos);
         PlaceableObject targetObject = null;
         
-        // First try Object layer
         foreach (PlaceableObject obj in objectsAtPos)
         {
             if (obj.IsPlaced && obj.Layer == GridLayer.Object)
             {
                 targetObject = obj;
-                Debug.Log($"[CLIENT] Found {obj.Layer} object at grid position (priority)");
                 break;
             }
         }
         
-        // Then try Wall layer
         if (targetObject == null)
         {
             foreach (PlaceableObject obj in objectsAtPos)
@@ -330,13 +359,11 @@ public class PlayerGrabSystem : NetworkBehaviour
                 if (obj.IsPlaced && obj.Layer == GridLayer.Wall)
                 {
                     targetObject = obj;
-                    Debug.Log($"[CLIENT] Found {obj.Layer} object at grid position (priority)");
                     break;
                 }
             }
         }
         
-        // Finally try Foundation layer
         if (targetObject == null)
         {
             foreach (PlaceableObject obj in objectsAtPos)
@@ -344,7 +371,6 @@ public class PlayerGrabSystem : NetworkBehaviour
                 if (obj.IsPlaced && obj.Layer == GridLayer.Foundation)
                 {
                     targetObject = obj;
-                    Debug.Log($"[CLIENT] Found {obj.Layer} object at grid position");
                     break;
                 }
             }
@@ -355,19 +381,11 @@ public class PlayerGrabSystem : NetworkBehaviour
             NetworkObject targetNetObj = targetObject.GetComponent<NetworkObject>();
             if (targetNetObj != null)
             {
-                Debug.Log($"[CLIENT] Sending UseToolServerRpc with IDs: tool={heldObjectNetId}, target={targetNetObj.NetworkObjectId}");
                 UseToolServerRpc(heldObjectNetId, targetNetObj.NetworkObjectId);
             }
-            else
-            {
-                Debug.LogError($"[CLIENT] Object has no NetworkObject component!");
-            }
-        }
-        else
-        {
-            Debug.Log($"[CLIENT] No placed object found at grid position {gridPos}");
         }
     }
+
     [ServerRpc]
     void UseToolServerRpc(ulong toolId, ulong targetId)
     {
@@ -376,21 +394,11 @@ public class PlayerGrabSystem : NetworkBehaviour
         if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(toolId, out NetworkObject toolObj) &&
             NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetId, out NetworkObject targetObj))
         {
-            Debug.Log($"[SERVER] Found both tool and target objects");
             ITool tool = toolObj.GetComponent<ITool>();
             if (tool != null && tool.CanBeUsed())
             {
-                Debug.Log($"[SERVER] Calling tool.OnUse()");
                 tool.OnUse(targetObj.gameObject);
             }
-            else
-            {
-                Debug.LogError($"[SERVER] Tool is null or can't be used");
-            }
-        }
-        else
-        {
-            Debug.LogError($"[SERVER] Could not find tool or target in spawned objects");
         }
     }
 
@@ -398,15 +406,29 @@ public class PlayerGrabSystem : NetworkBehaviour
     {
         if (LevelGrid.Instance == null) return;
 
-        PlaceableObject placeableObj = heldObject as PlaceableObject;
-        if (placeableObj == null) return;
-
         Vector2Int gridPos = GetTargetGridPosition();
 
-        // Use the object's CanPlaceAtPosition which handles layer checking internally
-        if (placeableObj.CanPlaceAtPosition(gridPos))
+        // Check if holding PlaceableObject
+        PlaceableObject placeableObj = heldObject as PlaceableObject;
+        if (placeableObj != null)
         {
-            PlaceObjectServerRpc(heldObjectNetId, gridPos);
+            if (placeableObj.CanPlaceAtPosition(gridPos))
+            {
+                PlaceObjectServerRpc(heldObjectNetId, gridPos);
+            }
+            return;
+        }
+
+        // Check if holding RawMaterial
+        RawMaterial rawMaterial = heldObject as RawMaterial;
+        if (rawMaterial != null)
+        {
+            // Raw materials can always be placed (they stack)
+            if (LevelGrid.Instance.IsInBounds(gridPos))
+            {
+                PlaceObjectServerRpc(heldObjectNetId, gridPos);
+            }
+            return;
         }
     }
 
