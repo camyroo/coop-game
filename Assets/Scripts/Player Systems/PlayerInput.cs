@@ -10,6 +10,9 @@ public class PlayerInput : NetworkBehaviour
     public bool PlacePressed { get; private set; }
     public bool DropPressed { get; private set; }
     
+    public bool GrabHeld { get; private set; }
+    public bool GrabReleased { get; private set; }
+    
     private InputAction moveAction;
     private InputAction interactAction;
     private InputAction grabAction;
@@ -63,6 +66,10 @@ public class PlayerInput : NetworkBehaviour
         GrabPressed = grabAction?.WasPressedThisFrame() ?? false;
         PlacePressed = placeAction?.WasPressedThisFrame() ?? false;
         DropPressed = dropAction?.WasPressedThisFrame() ?? false;
+        
+        // NEW: Track hold and release
+        GrabHeld = grabAction?.IsPressed() ?? false;
+        GrabReleased = grabAction?.WasReleasedThisFrame() ?? false;
     }
     
     public override void OnNetworkDespawn()

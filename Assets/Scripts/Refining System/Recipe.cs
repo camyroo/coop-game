@@ -18,6 +18,10 @@ public class Recipe : ScriptableObject
     [SerializeField] private GameObject resultPrefab; // What spawns when recipe completes
     [SerializeField] private GridLayer targetLayer = GridLayer.Wall;
     
+    [Header("Transform")]
+    [SerializeField] private Vector3 positionOffset = Vector3.zero; // Y offset for spawning above ground
+    [SerializeField] private Vector3 rotationOffset = Vector3.zero; // Euler angles for rotation
+    
     [Header("Visuals")]
     [SerializeField] private Material blueprintMaterial; // Ghost material showing what will be built
     
@@ -26,6 +30,8 @@ public class Recipe : ScriptableObject
     public GameObject ResultPrefab => resultPrefab;
     public GridLayer TargetLayer => targetLayer;
     public Material BlueprintMaterial => blueprintMaterial;
+    public Vector3 PositionOffset => positionOffset;
+    public Vector3 RotationOffset => rotationOffset;
     
     /// <summary>
     /// Get total number of materials needed
@@ -57,18 +63,6 @@ public class Recipe : ScriptableObject
     /// </summary>
     public bool RequiresTool(string toolType)
     {
-        Debug.Log($"[RECIPE] RequiresTool called with '{toolType}'");
-        Debug.Log($"[RECIPE] requiredMaterials is null: {requiredMaterials == null}");
-        Debug.Log($"[RECIPE] requiredMaterials count: {requiredMaterials?.Count ?? 0}");
-        
-        if (requiredMaterials != null)
-        {
-            foreach (var m in requiredMaterials)
-            {
-                Debug.Log($"[RECIPE] Checking material: toolType='{m.toolType}', matches={m.toolType == toolType}");
-            }
-        }
-        
         return requiredMaterials.Any(m => m.toolType == toolType);
     }
     

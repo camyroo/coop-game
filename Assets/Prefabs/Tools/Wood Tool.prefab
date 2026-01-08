@@ -15,7 +15,7 @@ GameObject:
   - component: {fileID: 257703487157223527}
   - component: {fileID: -4566591441967976692}
   m_Layer: 6
-  m_Name: better_hammer
+  m_Name: Wood Tool
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

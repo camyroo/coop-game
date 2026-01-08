@@ -5,6 +5,11 @@ using System.Collections.Generic;
 [RequireComponent(typeof(PlayerInput))]
 public class PlayerGrabSystem : NetworkBehaviour
 {
+
+    
+    [Header("Hold Interaction")]
+    [SerializeField] private HoldInteraction holdInteraction;
+
     [Header("Settings")]
     [SerializeField] private LayerMask grabbableLayer;
     [SerializeField] private float grabDistance = 2f;
@@ -35,6 +40,7 @@ public class PlayerGrabSystem : NetworkBehaviour
         holdPoint.localPosition = holdOffset;
     }
 
+    
     void Update()
     {
         if (!IsOwner) return;
@@ -48,7 +54,7 @@ public class PlayerGrabSystem : NetworkBehaviour
 
             if (playerInput.GrabPressed)
             {
-                TryGrab();
+                TryGrab(); // Instant grab
             }
         }
         else
@@ -59,9 +65,16 @@ public class PlayerGrabSystem : NetworkBehaviour
                 // Tool mode: highlight targeted grid cell
                 UpdateToolPreview();
 
+                // NEW: Hold-to-use for tools
                 if (playerInput.GrabPressed)
                 {
-                    TryUseTool();
+                    // Started pressing F - begin hold
+                    StartToolHold();
+                }
+                else if (playerInput.GrabReleased)
+                {
+                    // Released F early - cancel hold
+                    CancelToolHold();
                 }
 
                 if (playerInput.DropPressed)
@@ -76,7 +89,7 @@ public class PlayerGrabSystem : NetworkBehaviour
 
                 if (playerInput.PlacePressed)
                 {
-                    TryPlace();
+                    TryPlace(); // Instant place (not a tool action)
                 }
 
                 if (playerInput.DropPressed)
@@ -85,6 +98,124 @@ public class PlayerGrabSystem : NetworkBehaviour
                 }
             }
         }
+    }
+
+    void StartToolHold()
+    {
+        if (holdInteraction == null)
+        {
+            Debug.LogWarning("[PlayerGrabSystem] No HoldInteraction component!");
+            return;
+        }
+        
+        if (holdInteraction.IsHolding) return; // Already holding
+        
+        // Determine hold duration based on what we're targeting
+        Vector2Int gridPos = GetTargetGridPosition();
+        float duration = GetToolHoldDuration(gridPos);
+        
+        if (duration <= 0f)
+        {
+            Debug.Log("[PlayerGrabSystem] Nothing valid to use tool on");
+            return;
+        }
+        
+        Debug.Log($"[PlayerGrabSystem] Starting tool hold for {duration}s");
+        
+        holdInteraction.StartHold(
+            duration,
+            onComplete: () => OnToolHoldComplete(gridPos),
+            onProgress: (progress) => OnToolHoldProgress(progress),
+            onCancel: () => OnToolHoldCancel()
+        );
+    }
+
+    // NEW: Cancel hold if F released early
+    void CancelToolHold()
+    {
+        if (holdInteraction != null && holdInteraction.IsHolding)
+        {
+            holdInteraction.Cancel();
+        }
+    }
+
+    float GetToolHoldDuration(Vector2Int gridPos)
+    {
+        if (LevelGrid.Instance == null) return 0f;
+        if (heldTool == null) return 0f;
+        
+        // SPECIAL CASE: DamageTool targets REFINED objects (not damaged)
+        DamageTool damageTool = heldTool as DamageTool;
+        if (damageTool != null)
+        {
+            // Check for any Refined objects to damage
+            var allObjects = LevelGrid.Instance.GetAllObjectsAt(gridPos);
+            foreach (var obj in allObjects)
+            {
+                if (obj.State == ObjectState.Refined)
+                {
+                    return damageTool.DamageHoldTime; // Use tool's configured hold time
+                }
+            }
+            return 0f; // No refined objects to damage
+        }
+        
+        // Check for damaged objects (repair = 2.5 seconds)
+        var damagedObjects = LevelGrid.Instance.GetAllObjectsAt(gridPos);
+        foreach (var obj in damagedObjects)
+        {
+            if (obj.State == ObjectState.Damaged)
+            {
+                return 2.5f; // Repair takes 2.5 seconds
+            }
+        }
+        
+        // Check for raw materials to process (1.5 seconds per material)
+        CellBlueprint activeBlueprint = LevelGrid.Instance.GetActiveBlueprint(gridPos);
+        if (activeBlueprint != null && !activeBlueprint.IsComplete)
+        {
+            // Get the processing tool to check if it matches blueprint
+            ProcessingTool processingTool = heldTool as ProcessingTool;
+            if (processingTool != null)
+            {
+                // Check if blueprint accepts this tool type
+                if (activeBlueprint.AcceptsTool(processingTool.ToolType))
+                {
+                    // Check if there are materials to process
+                    var rawMaterials = LevelGrid.Instance.GetRawMaterials(gridPos, activeBlueprint.Recipe.TargetLayer);
+                    if (rawMaterials.Count > 0)
+                    {
+                        return 1.5f; // Processing material takes 1.5 seconds
+                    }
+                }
+            }
+        }
+        
+        return 0f; // Nothing to do
+    }
+
+    // NEW: Tool hold completed - actually use the tool
+    void OnToolHoldComplete(Vector2Int gridPos)
+    {
+        Debug.Log("[PlayerGrabSystem] Tool hold complete - using tool!");
+        TryUseTool(); // Call existing tool use method
+    }
+
+    // NEW: Progress update (for UI feedback later)
+    void OnToolHoldProgress(float progress)
+    {
+        // TODO: Update progress bar UI
+        // For now, just log occasionally
+        if (Mathf.Abs(progress - 0.5f) < 0.02f)
+        {
+            Debug.Log($"[PlayerGrabSystem] Tool progress: 50%");
+        }
+    }
+
+    // NEW: Hold canceled
+    void OnToolHoldCancel()
+    {
+        Debug.Log("[PlayerGrabSystem] Tool hold canceled - must hold longer!");
     }
 
     public void GrabSpecificObject(ulong objectId)
@@ -212,16 +343,19 @@ public class PlayerGrabSystem : NetworkBehaviour
 
         Collider closest = nearbyObjects[0];
         float closestDist = Vector3.Distance(transform.position, closest.transform.position);
-
+        Debug.Log($"[Grab] Found {nearbyObjects.Length} grabbable objects nearby");
         foreach (Collider col in nearbyObjects)
         {
+            IGrabbable grabbable = col.GetComponent<IGrabbable>();
+            if (grabbable == null) continue; // ← Skip non-grabbables!
+            
             float dist = Vector3.Distance(transform.position, col.transform.position);
             if (dist < closestDist)
             {
                 closest = col;
                 closestDist = dist;
             }
-        }
+        }   
 
         // Prioritize by layer if multiple at same position
         List<IGrabbable> samePositionObjects = new List<IGrabbable>();

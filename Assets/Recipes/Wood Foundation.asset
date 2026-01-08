@@ -17,6 +17,8 @@ MonoBehaviour:
   - materialType: 2
     count: 3
     toolType: wood
-  resultPrefab: {fileID: 4742177034988093614, guid: ece769c8e28d6af45a39b9106400b230, type: 3}
+  resultPrefab: {fileID: 4742177034988093614, guid: 51e7b45c7800ca04896a35d5d64603df, type: 3}
   targetLayer: 0
+  positionOffset: {x: 0, y: 0, z: 0}
+  rotationOffset: {x: 90, y: 0, z: 0}
   blueprintMaterial: {fileID: 0}

@@ -329,6 +329,7 @@ GameObject:
   - component: {fileID: 3390777199925698199}
   - component: {fileID: 2935476790207429940}
   - component: {fileID: 1976837209330967219}
+  - component: {fileID: 8027804163942149338}
   - component: {fileID: -6043100846535215742}
   - component: {fileID: -2852539439711582083}
   - component: {fileID: -1827885760484609252}
@@ -336,8 +337,8 @@ GameObject:
   - component: {fileID: 6533925084741057571}
   - component: {fileID: 1861558626351094736}
   - component: {fileID: -8285095455040789782}
-  - component: {fileID: 8027804163942149338}
   - component: {fileID: -889870417115918668}
+  - component: {fileID: -5234324425033899425}
   m_Layer: 3
   m_Name: Player
   m_TagString: Player
@@ -447,6 +448,29 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
+--- !u!136 &8027804163942149338
+CapsuleCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3710265741278109118}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Radius: 0.5
+  m_Height: 2
+  m_Direction: 1
+  m_Center: {x: 0, y: 0, z: 0}
 --- !u!114 &-6043100846535215742
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -548,6 +572,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerGrabSystem
   ShowTopMostFoldoutHeaderGroup: 1
+  holdInteraction: {fileID: -5234324425033899425}
   grabbableLayer:
     serializedVersion: 2
     m_Bits: 192
@@ -601,29 +626,6 @@ MonoBehaviour:
   config: {fileID: 11400000, guid: 80ac92eba684a744989ddad6fd1302d7, type: 2}
   acceleration: 20
   deceleration: 15
---- !u!136 &8027804163942149338
-CapsuleCollider:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 3710265741278109118}
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_IsTrigger: 0
-  m_ProvidesContacts: 0
-  m_Enabled: 1
-  serializedVersion: 2
-  m_Radius: 0.5
-  m_Height: 2
-  m_Direction: 1
-  m_Center: {x: 0, y: 0, z: 0}
 --- !u!114 &-889870417115918668
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -641,6 +643,19 @@ MonoBehaviour:
   interactableLayer:
     serializedVersion: 2
     m_Bits: 128
+--- !u!114 &-5234324425033899425
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3710265741278109118}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3fd36781514ff704fb318dac024c22e7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::HoldInteraction
+  holdDuration: 2
 --- !u!1 &5722672505958404393
 GameObject:
   m_ObjectHideFlags: 0

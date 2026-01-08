@@ -10,15 +10,12 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ff4455157301ab744a512bd9e580da65, type: 3}
-  m_Name: Concrete Wall
+  m_Name: Steel Foundation
   m_EditorClassIdentifier: Assembly-CSharp::Recipe
   recipeName: Concrete Wall
-  requiredMaterials:
-  - materialType: 0
-    count: 2
-    toolType: concrete
-  resultPrefab: {fileID: 7634978478281841074, guid: dfe222777ffc99548aa19b896441bf27, type: 3}
+  requiredMaterials: []
+  resultPrefab: {fileID: 0}
   targetLayer: 1
-  positionOffset: {x: 0, y: 0.7, z: 0}
+  positionOffset: {x: 0, y: 0, z: 0}
   rotationOffset: {x: 0, y: 0, z: 0}
   blueprintMaterial: {fileID: 0}
