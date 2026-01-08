@@ -12,8 +12,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ff4455157301ab744a512bd9e580da65, type: 3}
   m_Name: Steel Foundation
   m_EditorClassIdentifier: Assembly-CSharp::Recipe
-  recipeName: Concrete Wall
-  requiredMaterials: []
+  recipeName: Steel Foundation
+  requiredMaterials:
+  - materialType: 1
+    count: 2
+    toolType: steel
   resultPrefab: {fileID: 0}
   targetLayer: 1
   positionOffset: {x: 0, y: 0, z: 0}

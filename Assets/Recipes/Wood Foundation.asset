@@ -15,10 +15,10 @@ MonoBehaviour:
   recipeName: Wood Foundation
   requiredMaterials:
   - materialType: 2
-    count: 3
+    count: 1
     toolType: wood
   resultPrefab: {fileID: 4742177034988093614, guid: 51e7b45c7800ca04896a35d5d64603df, type: 3}
   targetLayer: 0
   positionOffset: {x: 0, y: 0, z: 0}
   rotationOffset: {x: 90, y: 0, z: 0}
-  blueprintMaterial: {fileID: 0}
+  blueprintMaterial: {fileID: 2100000, guid: a54d74312966ded42af4c59278a00674, type: 2}
